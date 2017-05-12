@@ -6,6 +6,44 @@ require(MASS)
 require(partykit)
 
 ##########################################
+CreateGroupLassoDesignMatrix = function(X){
+  cat("hey")
+  families = unique(X[,"Family"])
+  ntasks=length(families)
+  colsPerTask = (ncol(X)-2) # removing label and family columns
+  colsPerTask = colsPerTask+1 # adding intercept column per each task (two different rows of code just for readibility)
+  Xgl = matrix(-123456,nrow=nrow(X),ncol=(colsPerTask*ntasks)+1) # the +1 is for the label
+  #cat(nrow(Xgl),"XGL",ncol(Xgl),"\n")
+  i=0
+  
+  rowend=0
+  #cat("ncol of xgl is:",ncol(Xgl),"\n")
+  groups=rep(1:colsPerTask,ntasks) # which group each variable belongs to. in our case, we group the same variable across tasks
+  for(fam in families){
+    #cat("fam is :" ,fam,"\n")
+    nr = nrow(X[X[,"Family"]==fam,]) ## how many instances for this family/task
+    nc = colsPerTask ## we know in our formulation that all tasks share the same number of features
+    rowstart=(rowend+1)#(i*nr)+1
+    rowend = rowstart + nr -1
+    colstart = (i*nc)+1
+    colend = (i+1)*nc
+    #cat(rowstart,"->",rowend,"\n")
+    #cat(colstart,"->",colend,"\n")
+    uu=as.matrix(X[X[,"Family"]==fam,-which(colnames(X) %in% c("Family","Label"))])
+    Xgl[rowstart:rowend,colstart:(colend-1)]<-uu
+    Xgl[rowstart:rowend,colend]=matrix(1,nrow=length(rowstart:rowend),ncol=1) ## add intercept per task
+    ## add label
+    Xgl[rowstart:rowend,ncol(Xgl)] = as.matrix(X[X[,"Family"]==fam,"Label"])
+    i=i+1
+    
+  }
+  ret=list()
+  ret[["X"]]=Xgl
+  ret[["groups"]]=groups
+  return(ret)
+}
+
+
 negBinLogLikeLoss = function(preds,y){
   ret = log(1+exp(-2*y*preds))
   return(ret)
@@ -54,8 +92,12 @@ TreeWithCoef= function(treeFit,fittedCoef,intercept) {
 }
 
 predict.treeWithCoef = function(modelObject,newdata){
-  
-  preds = predict(modelObject$treeFit,newdata)
+  fit=modelObject$treeFit
+  preds = predict(fit,data.frame(x=newdata))
+  #### TODO: change classification instance of the code to work with an underlying regression tree
+  # if(fit$method=="class"){  # i think that ANYWAY we never use classification trees, behind the scenes we only do regression trees?
+  #   preds=data.frame(preds[,1]) #  this takes the probability to be in class 1  
+  # }
   ret=(preds*modelObject$fittedCoef)+(modelObject$intercept)
 
   return(ret)
@@ -83,9 +125,11 @@ predict.treeWithLeafCoefsModel = function(modelObject,newdata){
   leafToCoef = modelObject$leafToCoef
   ## using the partykit package, we can get nodes for exsiting rpart object,
   ## i chekced and it corresponds exactly with rpart
-  #predNodes = predict(as.party(fit),newdata=X,type="node") ##get the nodes for each prediction
   predNodes=rpart:::pred.rpart(fit, rpart:::rpart.matrix(X))
   preds = predict(fit,newdata=X) ##prediction for all X
+  if(fit$method=="class"){
+    preds=data.frame(preds[,1]) #  this takes the probability to be in class 1  
+  }
   
   
   nodeValues = unique(predNodes)
@@ -124,8 +168,8 @@ predict.BoostingModel = function(m,X,calibrate=TRUE){
     newpred=predict(modelObject=mm,newdata=X)
     pred = pred+(rate*newpred)
     #pred = pred+newpred
-    if(length(pred) != nrow(X)){
-      
+    pred = as.matrix(pred,ncol=1)
+    if(nrow(pred) != nrow(X)){
       cat("predict in submodel yielded different number of rows\n")
     }
   }
@@ -144,7 +188,7 @@ predict.BoostingModel = function(m,X,calibrate=TRUE){
 
 
 ###*********************************************************************
-TrainMultiTaskClassificationGradBoost2 = function(df,iter=3,v=1,groups,controls,ridge.lambda,target="binary"){
+TrainMultiTaskClassificationGradBoost2 = function(df,iter=3,v=1,groups,controls,ridge.lambda,target="binary",df.val=NULL){
   
   families = unique(groups)[unique(groups)!="clean"]
   data = df  
@@ -178,10 +222,13 @@ TrainMultiTaskClassificationGradBoost2 = function(df,iter=3,v=1,groups,controls,
     ### pseudo responses
     if(t%%20 == 0){
       cat("iteration ",t,"\n")
-      cat("train mean square err is:",sqrt(mean((data$Label-yp)**2)),"\n")
-      #cat("test mean sqaure error:",sqrt(mean((valdf$Label-yp)**2)),"\n")
-      #cat("train AUC is:",pROC::auc(pROC::roc(as.vector(data$Label),as.vector(yp)))[1],"\n")
+      if(target=="regression"){
+        cat("train RMSE is:",sqrt(mean((data$Label-yp)**2)),"\n")  
+      }else{
+        cat("train AUC is:")#,pROC::auc(yp,data$label),"\n")  
+      }
     }
+    
     #cat(head(yp,n=50),"-----------\n")
     pr = negative_gradient(y=data$Label,preds=yp,target=target) ## as if y-yp but multiply each adition by v so it's y-v*yp
     if(any(is.na(pr))){
@@ -189,12 +236,16 @@ TrainMultiTaskClassificationGradBoost2 = function(df,iter=3,v=1,groups,controls,
     }
     
     ## create a tree for all families together, 1 vs 0
-    fit=rpart(pr~.,data=data[,-which(colnames(data) %in% c("Label","Family"))],control=controls,method=if(target=="binary") "class" else "anova")
-    
+    #fit=rpart(pr~.,data=data[,-which(colnames(data) %in% c("Label","Family"))],control=controls,method=if(target=="binary") "class" else "anova")
+    #fit=ctree(pr~.,data=data[,-which(colnames(data) %in% c("Label","Family"))],control=ctree_control())
+    fit=ctree(y~.,data=data.frame(x=data[,-which(colnames(data) %in% c("Label","Family"))],y=pr),control=ctree_control(maxdepth = 3),cores=3)
+    ridgeRegX = NULL
+    ridgeRegy = NULL
     for(fam in families){
       ###  fit a coefficient per entire tree
       famx = data[(data[,"Family"]==fam),-which(colnames(data) %in% c("Label","Family"))]
-      famX=predict(fit,famx)
+      #famX=predict(fit,famx)
+      famX=predict(fit,data.frame(x=famx))
       famy = pr[(data[,"Family"]==fam)]
       lmdf = matrix(ncol=2,nrow=length(famX))
       lmdf[,1]=as.matrix(famX,ncol=1)
@@ -202,29 +253,50 @@ TrainMultiTaskClassificationGradBoost2 = function(df,iter=3,v=1,groups,controls,
       colnames(lmdf)=c("x","y")
       
       lmdf = data.frame(lmdf)
-      #cat("lm is getting:",dim(lmdf),"na in x:",all(is.na(lmdf[,1])),"na in y:",all(is.na(lmdf[,2])),"\n")
-      mm = lm(y~x -1,data=lmdf) 
+      if(!is.null(ridgeRegX)){
+        newx = lmdf[,"x"]
+        newx = rbind(matrix(0,nrow=nrow(ridgeRegX),ncol=1),matrix(newx,ncol=1))
+        newy = matrix(lmdf[,"y"],ncol=1)
+        ridgeRegX = rbind(ridgeRegX,matrix(0,ncol = ncol(ridgeRegX),nrow=nrow(lmdf)))
+        ridgeRegX = cbind(ridgeRegX,newx)
+        ridgeRegy = rbind(ridgeRegy,newy)
+      }else{
+        ridgeRegX = matrix(lmdf[,"x"],ncol=1)
+        ridgeRegy = matrix(lmdf[,"y"],ncol=1)
+      }
       
+      
+      mm = lm(y~x -1,data=lmdf)
+
       fittedCoef = as.numeric(coef(mm)[1])
       if(is.na(fittedCoef)){
         fittedCoef=1
       }
-      fittedIntercept = 0#as.numeric(coef(mm)[1]) ### fitting without coefficient
+      fittedIntercept = 0#as.numeric(coef(mm)[1]) ### fitting without intercept
       #cat("fitted coef is: ",fittedCoef,"\n")
-      finalModel[[toString(fam)]][[t]] = TreeWithCoef(fit,fittedCoef,fittedIntercept)      
+      finalModel[[toString(fam)]][[t]] = TreeWithCoef(fit,fittedCoef,fittedIntercept)
       
     }
+    ridgeReg = cbind(ridgeRegX,ridgeRegy)
+    ridgeReg=data.frame(ridgeReg)
+    colnames(ridgeReg)=c(families,"y")
+
+    # #mm = lm.ridge(y~-1.,data = ridgeReg,lambda=ridge.lambda,tol=0.001)
+    # mm=glmnet(as.matrix(ridgeReg[,-which(colnames(ridgeReg) == "y")]),as.matrix(ridgeReg[,"y"]), alpha = 0, lambda = ridge.lambda,intercept=FALSE)
+    # for(i  in 1:length(families)){
+    #   fittedCoef = coef(mm)[i]
+    #   fittedIntercept=0 ### fitting without intercept
+    #   finalModel[[toString(families[i])]][[t]] = TreeWithCoef(fit,fittedCoef,fittedIntercept)      
+    # }
     
     ## generate new pseduo-responses:
-    
-    
     famPreds=matrix(ncol=1,nrow=length(yp))
     for(fam in families){
       pp = predict(finalModel[[toString(fam)]][[t]],data[data[,"Family"]==fam,-which(colnames(data) %in% c("Label","Family"))])
       famPreds[data[,"Family"]==fam,1]=as.matrix(pp,ncol=1)
     }
     yp = yp + v*famPreds
-    
+    #val.fam.preds = val.preds + v*
   }
   
   ret=list()
@@ -271,15 +343,18 @@ TrainMultiTaskClassificationGradBoost = function(df,iter=3,v=1,groups,controls,r
     ### pseudo responses
     if(t%%20 == 0){
       cat("iteration ",t,"\n")
-      cat("train mean square err is:",sqrt(mean((data$Label-yp)**2)),"\n")
-      #cat("test mean sqaure error:",sqrt(mean((valdf$Label-yp)**2)),"\n")
-      #cat("train AUC is:",pROC::auc(pROC::roc(as.vector(data$Label),as.vector(yp)))[1],"\n")
+      if(target=="regression"){
+        cat("train RMSE is:",sqrt(mean((data$Label-yp)**2)),"\n")  
+      }else{
+        cat("train AUC is:")#,pROC::auc(yp,data$label),"\n")  
+      }
     }
+    
     #cat(head(yp,n=50),"-----------\n")
     pr = negative_gradient(y=data$Label,preds=yp,target=target) ## as if y-yp but multiply each adition by v so it's y-v*yp
     
     ## create a tree for all families together, 1 vs 0
-    fit=rpart(pr~.,data=data[,-which(colnames(data) %in% c("Label","Family"))],control=controls,method=if(target=="binary") "class" else "anova")
+    fit=rpart(pr~.,data=data[,-which(colnames(data) %in% c("Label","Family"))],control=controls,method="anova")
     
     
     ### fit model with per leaf score
@@ -365,13 +440,14 @@ TrainMultiTaskClassificationGradBoost = function(df,iter=3,v=1,groups,controls,r
       PerLeafData = data.frame(ridgeRegX)
       PerLeafData = cbind(PerLeafData,y)
       #cat("before ridge target is ",head(y),"***********\n")
-      m = lm.ridge(y~.,data = PerLeafData,lambda=ridge.lambda)
+      m = lm.ridge(y~.-1,data = PerLeafData,lambda=ridge.lambda) 
       leafCoefs=coef(m)
       #cat("ceofs of ridge:",coef(m),"\n")
       for(fam in families){
         if(fam %in% names(leafCoefs)){
           intercept = as.numeric(coef(m)[1])
-          leavesToCoefs[[toString(fam)]][[l]]=as.numeric(leafCoefs[toString(fam)])+intercept
+          #leavesToCoefs[[toString(fam)]][[l]]=as.numeric(leafCoefs[toString(fam)])+intercept
+          leavesToCoefs[[toString(fam)]][[l]]=as.numeric(leafCoefs[toString(fam)])
         }else{
           leavesToCoefs[[toString(fam)]][[l]]=mean(y)
         }
@@ -434,28 +510,6 @@ LogLoss<-function(actual, predicted)
 }
 
 
-### in order to use the new model, we add the results of the different models
-### this predicts on line of data using the additive model
-# predict.Boost = function(X,m,calibrate=TRUE,rate){
-#   
-#   
-#   ## first, for each of the fitted sub models, create a prediction at X
-#   pred=rep(m[[1]],nrow(X)) ## fill with the initial guess
-#   for(i in 2:length(m)){
-#     mm = m[[i]]  # extract i-th model
-#     newpred=predict(modelObject=mm,newdata=X)
-#     pred = pred+(rate*newpred)
-#     #pred = pred+newpred
-#     if(length(pred) != nrow(X)){
-#       
-#       cat("predict in submodel yielded different number of rows\n")
-#     }
-#   }
-#   if(calibrate){
-#     pred = 1/(1+exp(-2*pred)) ## convert to logistic score  
-#   }
-#   return(pred)
-# }
 
 
 BoostingModelFeatureImportance = function(model){
