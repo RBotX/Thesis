@@ -7,38 +7,58 @@ require(partykit)
 
 ##########################################
 CreateGroupLassoDesignMatrix = function(X){
-  cat("hey")
+  
   families = unique(X[,"Family"])
   ntasks=length(families)
   colsPerTask = (ncol(X)-2) # removing label and family columns
   colsPerTask = colsPerTask+1 # adding intercept column per each task (two different rows of code just for readibility)
-  Xgl = matrix(-123456,nrow=nrow(X),ncol=(colsPerTask*ntasks)+1) # the +1 is for the label
+  Xgl = matrix(NA,nrow=nrow(X),ncol=(colsPerTask*ntasks)+1) # the +1 is for the label
   #cat(nrow(Xgl),"XGL",ncol(Xgl),"\n")
   i=0
   
   rowend=0
   #cat("ncol of xgl is:",ncol(Xgl),"\n")
   groups=rep(1:colsPerTask,ntasks) # which group each variable belongs to. in our case, we group the same variable across tasks
+  Xgl=c()
+  ygl=c()
   for(fam in families){
-    #cat("fam is :" ,fam,"\n")
-    nr = nrow(X[X[,"Family"]==fam,]) ## how many instances for this family/task
-    nc = colsPerTask ## we know in our formulation that all tasks share the same number of features
-    rowstart=(rowend+1)#(i*nr)+1
-    rowend = rowstart + nr -1
-    colstart = (i*nc)+1
-    colend = (i+1)*nc
-    #cat(rowstart,"->",rowend,"\n")
-    #cat(colstart,"->",colend,"\n")
-    uu=as.matrix(X[X[,"Family"]==fam,-which(colnames(X) %in% c("Family","Label"))])
-    Xgl[rowstart:rowend,colstart:(colend-1)]<-uu
-    Xgl[rowstart:rowend,colend]=matrix(1,nrow=length(rowstart:rowend),ncol=1) ## add intercept per task
-    ## add label
-    Xgl[rowstart:rowend,ncol(Xgl)] = as.matrix(X[X[,"Family"]==fam,"Label"])
-    i=i+1
+    cat("update gplasso matrix with fam is :" ,fam,"out of ",length(families)," families\n")
+    taskX=as.matrix(X[X[,"Family"]==fam,-which(colnames(X) %in% c("Family","Label"))])
+    taskX=cbind(taskX,matrix(1,nrow=nrow(taskX),ncol=1)) # add intercept per task
+    tasky = as.matrix(X[X[,"Family"]==fam,"Label"],ncol=1)
+    if(is.null(Xgl)){
+      Xgl=taskX
+      ygl=tasky
+      next
+    }
+    taskXpad = matrix(0,ncol=ncol(Xgl),nrow=nrow(taskX))
+    #taskypad = matrix(0,ncol=1,nrow=nrow(Xgl))
+    Xgl=cbind(Xgl,matrix(0,ncol=ncol(taskX),nrow=nrow(Xgl)))
+    taskX = cbind(taskXpad,taskX)
+    #tasky = rbind(taskypad,tasky)
+    Xgl = rbind(Xgl,taskX)
+    ygl = rbind(ygl,tasky) 
+    # cat("update gplasso matrix with fam is :" ,fam,"out of ",length(families)," families\n")
+    # nr = nrow(X[X[,"Family"]==fam,]) ## how many instances for this family/task
+    # nc = colsPerTask ## we know in our formulation that all tasks share the same number of features
+    # rowstart=(rowend+1)#(i*nr)+1
+    # rowend = rowstart + nr -1
+    # colstart = (i*nc)+1
+    # colend = (i+1)*nc
+    # #cat(rowstart,"->",rowend,"\n")
+    # #cat(colstart,"->",colend,"\n")
+    # uu=as.matrix(X[X[,"Family"]==fam,-which(colnames(X) %in% c("Family","Label"))])
+    # Xgl[rowstart:rowend,colstart:(colend-1)]<-uu
+    # Xgl[rowstart:rowend,colend]=matrix(1,nrow=length(rowstart:rowend),ncol=1) ## add intercept per task
+    # ## add label
+    # Xgl[rowstart:rowend,ncol(Xgl)] = as.matrix(X[X[,"Family"]==fam,"Label"])
+    # i=i+1
     
   }
   ret=list()
-  ret[["X"]]=Xgl
+  cat(nrow(ygl),"\n")
+  cat(nrow(Xgl),"\n")
+  ret[["X"]]=cbind(Xgl,ygl)
   ret[["groups"]]=groups
   return(ret)
 }
@@ -88,7 +108,8 @@ TreeWithCoef= function(treeFit,fittedCoef,intercept) {
 
 predict.treeWithCoef = function(modelObject,newdata){
   fit=modelObject$treeFit
-  preds = predict(fit,data.frame(x=newdata))
+  #preds = predict(fit,data.frame(x=newdata))
+  preds = predict(fit,newdata) ## 
   #### TODO: change classification instance of the code to work with an underlying regression tree
   # if(fit$method=="class"){  # i think that ANYWAY we never use classification trees, behind the scenes we only do regression trees?
   #   preds=data.frame(preds[,1]) #  this takes the probability to be in class 1  

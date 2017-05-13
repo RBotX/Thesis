@@ -22,7 +22,7 @@ schools2[,"Family"] = apply(as.matrix(schools2[,"Family"]),1,function(x){paste0(
 
 
 
-fams = table(schools2[,"Family"])[table(schools2[,"Family"]) > 40]
+fams = table(schools2[,"Family"])[table(schools2[,"Family"]) > 0]
 fams = names(fams)
 schools2=schools2[schools2[,"Family"] %in% fams,]
 
@@ -30,10 +30,12 @@ schools2=schools2[schools2[,"Family"] %in% fams,]
 alltests=c()
 NUM_TESTS=10
 for(l in 1:NUM_TESTS){
+  cat("train-test split number ",l,"\n")
   set.seed(l)
   testidx = c()
   for(fam in unique(schools2[,"Family"])){
-    testidx = c(testidx, sample(which(schools2[,"Family"]==fam),floor(length(which(schools2[,"Family"]==fam))*0.4) ))
+    #http://aima.eecs.berkeley.edu/~russell/classes/cs294/f05/papers/evgeniou+al-2005.pdf they take 75-25 train-test split, cited 669 times
+    testidx = c(testidx, sample(which(schools2[,"Family"]==fam),floor(length(which(schools2[,"Family"]==fam))*0.25) )) 
   }
   
   
@@ -42,8 +44,8 @@ for(l in 1:NUM_TESTS){
   data[["data"]]=schools2
   data[["testidx"]]=testidx
   
-  controls=rpart.control(maxdepth = 2)
-  iter=300
+  
+  iter=200
   rate=0.01
   ridge.lambda=1  
   #data=GenerateData(d=d,ntrain=ntrain,ntest=ntest,seed=i)
@@ -52,7 +54,8 @@ for(l in 1:NUM_TESTS){
   test = data$data[data$testidx,]
   
   mshared=TrainMultiTaskClassificationGradBoost(train,iter=iter,v=rate,groups=train[,"Family"],controls=rpart.control(maxdepth = 3),ridge.lambda=ridge.lambda,target="regression")
-  mshared2=TrainMultiTaskClassificationGradBoost2(train,iter=iter,v=rate,groups=train[,"Family"],controls=ctree_control(maxdepth = 4),ridge.lambda=ridge.lambda,target="regression",fitCoef="norm2")
+  mshared2=TrainMultiTaskClassificationGradBoost2(train,iter=iter,v=rate,groups=train[,"Family"],controls=rpart.control(maxdepth = 3),ridge.lambda=ridge.lambda,target="regression")
+  mshared3=TrainMultiTaskClassificationGradBoost2(train,iter=iter,v=rate,groups=train[,"Family"],controls=rpart.control(maxdepth = 3),ridge.lambda=ridge.lambda,target="regression",fitCoef="norm2")
   
   perTaskModels=list()
   logitModels=list()
@@ -61,7 +64,7 @@ for(l in 1:NUM_TESTS){
     cat("fam ",fam,"\n")
     tr = train[train[,"Family"]==fam,]
     m0 = TrainMultiTaskClassificationGradBoost(tr,groups = matrix(fam,nrow=nrow(tr),ncol=1),iter=100,v=rate,
-                                               controls=rpart.control(maxdepth = 2), ridge.lambda = ridge.lambda,target="regression")  
+                                               controls=rpart.control(maxdepth = 3), ridge.lambda = ridge.lambda,target="regression")  
     perTaskModels[[toString(fam)]]=m0
     logitModels[[toString(fam)]]= cv.glmnet(x=as.matrix(tr[,-which(colnames(tr) %in% c("Family","Label"))]),y=tr[,"Label"],family="gaussian",alpha=1,maxit=10000,nfolds=4, thresh=1E-4)
   }
@@ -69,23 +72,23 @@ for(l in 1:NUM_TESTS){
   ### train binary model, ignoring multi tasking:
   binaryData = train
   binaryData["Family"]=1
-  mbinary=TrainMultiTaskClassificationGradBoost(binaryData,iter=iter,v=rate,groups=matrix(1,nrow=nrow(binaryData),ncol=1),controls=rpart.control(maxdepth = 2),ridge.lambda=ridge.lambda,target="regression")  
+  mbinary=TrainMultiTaskClassificationGradBoost(binaryData,iter=iter,v=rate,groups=matrix(1,nrow=nrow(binaryData),ncol=1),controls=rpart.control(maxdepth = 3),ridge.lambda=ridge.lambda,target="regression")  
   mlogitbinary = cv.glmnet(x=as.matrix(binaryData[,-which(colnames(tr) %in% c("Family","Label"))]),y=binaryData[,"Label"],family="gaussian",alpha=1,maxit=10000,nfolds=4, thresh=1E-4)
-  
-  # gplassotraindata = CreateGroupLassoDesignMatrix(train)
-  # gplassoX = (gplassotraindata$X)[,-ncol(gplassotraindata$X)]
-  # gplassoy =  (gplassotraindata$X)[,ncol(gplassotraindata$X)]
-  # #gplassoy[gplassoy==-1]=0
-  # 
-  # mgplasso = cv.grpreg(gplassoX, gplassoy, group=gplassotraindata$groups, nfolds=4, maxit=10000,seed=777,family="gaussian",trace=TRUE)
-  # 
-  # gplassotestdata = CreateGroupLassoDesignMatrix(test)
-  # gplassotestX = (gplassotestdata$X)[,-ncol(gplassotestdata$X)]
-  # gplassotesty =  (gplassotestdata$X)[,ncol(gplassotestdata$X)]
-  # 
-  # gplassoPreds = predict(mgplasso,gplassotestX,type="response",lambda=mgplasso$lambda.min)   
-  # methods = c("PANDO","PTB","BB","PTLogit","BinaryLogit","GL","PANDO2")
-  methods = c("PANDO","PTB","BB","PTLogit","BinaryLogit","PANDO2")
+    
+  gplassotraindata = CreateGroupLassoDesignMatrix(train)
+  gplassoX = (gplassotraindata$X)[,-ncol(gplassotraindata$X)]
+  gplassoy =  (gplassotraindata$X)[,ncol(gplassotraindata$X)]
+  #gplassoy[gplassoy==-1]=0
+
+  mgplasso = cv.grpreg(gplassoX, gplassoy, group=gplassotraindata$groups, nfolds=2, maxit=10000,seed=777,family="gaussian",trace=TRUE)
+
+  gplassotestdata = CreateGroupLassoDesignMatrix(test)
+  gplassotestX = (gplassotestdata$X)[,-ncol(gplassotestdata$X)]
+  gplassotesty =  (gplassotestdata$X)[,ncol(gplassotestdata$X)]
+
+  gplassoPreds = predict(mgplasso,gplassotestX,type="response",lambda=mgplasso$lambda.min)
+
+  methods = c("PANDO","PTB","BB","PTLogit","BinaryLogit","PANDO2","PANDO3","GL")
   
   rc=list()
   tt=list()
@@ -111,8 +114,9 @@ for(l in 1:NUM_TESTS){
     tt[[methods[3]]] = predict(mbinary[[toString(1)]],tr.test[,-which(colnames(tr.test) %in% c("Family","Label"))],calibrate=FALSE)
     tt[[methods[4]]] =predict(logitModels[[toString(fam)]],newx=as.matrix(tr.test[,-which(colnames(tr) %in% c("Family","Label"))]),type="response",s=logitModels[[toString(fam)]]$lambda.min)
     tt[[methods[5]]] =predict(mlogitbinary,newx=as.matrix(tr.test[,-which(colnames(tr) %in% c("Family","Label"))]),type="response",s=mlogitbinary$lambda.min)
-    #tt[[methods[6]]] = gplassoPreds[test[,"Family"]==fam]
     tt[[methods[6]]] = predict(mshared2[[toString(fam)]],tr.test[,-which(colnames(tr.test) %in% c("Family","Label"))],calibrate=FALSE)
+    tt[[methods[7]]] = predict(mshared3[[toString(fam)]],tr.test[,-which(colnames(tr.test) %in% c("Family","Label"))],calibrate=FALSE)
+    tt[[methods[8]]] = gplassoPreds[test[,"Family"]==fam]
     
     for(i in 1:length(methods)){
       rc[[methods[i]]]=sqrt(mean((tr.test[,"Label"]-tt[[methods[i]]])**2))

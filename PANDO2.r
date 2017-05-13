@@ -1,5 +1,5 @@
 source("helper.R")
-TrainMultiTaskClassificationGradBoost2 = function(df,iter=3,v=1,groups,controls,ridge.lambda,target="binary",df.val=NULL,fitCoef=NULL){
+TrainMultiTaskClassificationGradBoost2 = function(df,iter=3,v=1,groups,controls,ridge.lambda,target="binary",df.val=NULL,fitCoef="ls"){
   
   families = unique(groups)[unique(groups)!="clean"]
   data = df  
@@ -48,16 +48,15 @@ TrainMultiTaskClassificationGradBoost2 = function(df,iter=3,v=1,groups,controls,
     }
     
     ## create a tree for all families together, 1 vs 0
-    #fit=rpart(pr~.,data=data[,-which(colnames(data) %in% c("Label","Family"))],control=controls,method=if(target=="binary") "class" else "anova")
-    #fit=ctree(pr~.,data=data[,-which(colnames(data) %in% c("Label","Family"))],control=ctree_control())
-    fit=ctree(y~.,data=data.frame(x=data[,-which(colnames(data) %in% c("Label","Family"))],y=pr),control=controls,cores=3)
+    #fit=ctree(y~.,data=data.frame(x=data[,-which(colnames(data) %in% c("Label","Family"))],y=pr),control=controls,cores=3)
+    fit=rpart(pr~.,data=data[,-which(colnames(data) %in% c("Label","Family"))],control=controls,method="anova")
     ridgeRegX = NULL
     ridgeRegy = NULL
     for(fam in families){
       ###  fit a coefficient per entire tree
       famx = data[(data[,"Family"]==fam),-which(colnames(data) %in% c("Label","Family"))]
-      #famX=predict(fit,famx)
-      famX=predict(fit,data.frame(x=famx))
+      famX=predict(fit,famx)
+      #famX=predict(fit,data.frame(x=famx))
       famy = pr[(data[,"Family"]==fam)]
       lmdf = matrix(ncol=2,nrow=length(famX))
       lmdf[,1]=as.matrix(famX,ncol=1)
