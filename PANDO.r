@@ -1,4 +1,4 @@
-source("helper.r")
+source("helper.R")
 TrainMultiTaskClassificationGradBoost = function(df,iter=3,v=1,groups,controls,ridge.lambda,target="binary"){
   families = unique(groups)[unique(groups)!="clean"]
   data = df  

@@ -1,4 +1,4 @@
-source("helper.r")
+source("helper.R")
 TrainMultiTaskClassificationGradBoost2 = function(df,iter=3,v=1,groups,controls,ridge.lambda,target="binary",df.val=NULL,fitCoef=NULL){
   
   families = unique(groups)[unique(groups)!="clean"]
@@ -87,7 +87,7 @@ TrainMultiTaskClassificationGradBoost2 = function(df,iter=3,v=1,groups,controls,
       fittedIntercept = 0
       
       if(fitCoef == "norm2"){
-        fittedCoef = sqrt(sum(famX-famy)) ## like in obozinski  
+        fittedCoef = sqrt(sum((lmdf[,"x"]-lmdf[,"y"])**2)) ## like in obozinski  
       }
       finalModel[[toString(fam)]][[t]] = TreeWithCoef(fit,fittedCoef,fittedIntercept)
       
