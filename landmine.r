@@ -14,7 +14,7 @@ library(knitr)
 schools2=read.csv("LandmineData.csv",stringsAsFactors = FALSE)
 schools2=schools2[,-1]
 schools2[schools2[,"Label"]==0,"Label"]=-1
-schools2=schools2[schools2[,"Family"] %in% paste0("fam",1:15),]
+schools2=schools2[schools2[,"Family"] %in% paste0("fam",0:15),]
 
 
 
@@ -36,17 +36,18 @@ for(l in 1:NUM_TESTS){
   data[["testidx"]]=testidx
   
   #controls=rpart.control(maxdepth = 3)
-  iter=200
-  rate=0.01
+  iter=2000
+  rate=0.005
   ridge.lambda=1  
   #data=GenerateData(d=d,ntrain=ntrain,ntest=ntest,seed=i)
   
   train = data$data[-data$testidx,]
   test = data$data[data$testidx,]
   
-  mshared=TrainMultiTaskClassificationGradBoost(train,iter=iter,v=rate,groups=train[,"Family"],controls=rpart.control(maxdepth = 2),ridge.lambda=ridge.lambda,target="regression")
-  mshared2=TrainMultiTaskClassificationGradBoost2(train,iter=iter,v=rate,groups=train[,"Family"],controls=ctree_control(maxdepth = 2),ridge.lambda=ridge.lambda,target="regression")
-  mshared3=TrainMultiTaskClassificationGradBoost2(train,iter=iter,v=rate,groups=train[,"Family"],controls=ctree_control(maxdepth = 2),ridge.lambda=ridge.lambda,target="regression",fitCoef="norm2")
+  mshared=TrainMultiTaskClassificationGradBoost(train,iter=iter,v=rate,groups=train[,"Family"],controls=rpart.control(maxdepth = 4, cp=0.0001),ridge.lambda=ridge.lambda,target="binary",valdata=test)
+  mshared2=TrainMultiTaskClassificationGradBoost2(train,iter=iter,v=rate,groups=train[,"Family"],controls=rpart.control(maxdepth = 3, cp=0.0001),ridge.lambda=ridge.lambda,target="binary",treeType="rpart",valdata=test)
+  #mshared3=TrainMultiTaskClassificationGradBoost2(train,iter=iter,v=rate,groups=train[,"Family"],controls=ctree_control(maxdepth = 4),ridge.lambda=ridge.lambda,target="regression",treeType="ctree",fitCoef="norm2")
+  #mshared4=TrainMultiTaskClassificationGradBoost2(train,iter=iter,v=rate,groups=train[,"Family"],controls=ctree_control(maxdepth = 4),ridge.lambda=1,target="regression",treeType="ctree",fitCoef="norm1")
   
   perTaskModels=list()
   logitModels=list()
@@ -54,8 +55,8 @@ for(l in 1:NUM_TESTS){
     
     cat("fam ",fam,"\n")
     tr = train[train[,"Family"]==fam,]
-    m0 = TrainMultiTaskClassificationGradBoost(tr,groups = matrix(fam,nrow=nrow(tr),ncol=1),iter=300,v=rate,
-                                               controls=rpart.control(maxdepth = 2), ridge.lambda = ridge.lambda,target="binary")  
+    m0 = TrainMultiTaskClassificationGradBoost(tr,groups = matrix(fam,nrow=nrow(tr),ncol=1),iter=100,v=rate,
+                                               controls=rpart.control(maxdepth = 4), ridge.lambda = ridge.lambda,target="binary")  
     perTaskModels[[toString(fam)]]=m0
     logitModels[[toString(fam)]]= cv.glmnet(x=as.matrix(tr[,-which(colnames(tr) %in% c("Family","Label"))]),y=tr[,"Label"],family="binomial",alpha=1,maxit=10000,nfolds=3, thresh=1E-4)
   }
@@ -63,7 +64,7 @@ for(l in 1:NUM_TESTS){
   ### train binary model, ignoring multi tasking:
   binaryData = train
   binaryData["Family"]=1
-  mbinary=TrainMultiTaskClassificationGradBoost(binaryData,iter=iter,v=rate,groups=matrix(1,nrow=nrow(binaryData),ncol=1),controls=rpart.control(),ridge.lambda=ridge.lambda,target="binary")  
+  mbinary=TrainMultiTaskClassificationGradBoost(binaryData,iter=iter,v=rate,groups=matrix(1,nrow=nrow(binaryData),ncol=1),controls=rpart.control(maxdepth = 4),ridge.lambda=ridge.lambda,target="binary")  
   mlogitbinary = cv.glmnet(x=as.matrix(binaryData[,-which(colnames(tr) %in% c("Family","Label"))]),y=binaryData[,"Label"],family="binomial",alpha=1,maxit=10000,nfolds=3, thresh=1E-4)
   
   gplassotraindata = CreateGroupLassoDesignMatrix(train)
@@ -79,7 +80,7 @@ for(l in 1:NUM_TESTS){
   
   gplassoPreds = predict(mgplasso,gplassotestX,type="response",lambda=mgplasso$lambda.min)
   
-  methods = c("PANDO","PTB","BB","PTLogit","BinaryLogit","PANDO2","PANDO3","GL")
+  methods = c("PANDO","PTB","BB","PTLogit","BinaryLogit","PANDO2","GL")#"PANDO3","GL","PANDO4")
   
   rc=list()
   tt=list()
@@ -100,14 +101,15 @@ for(l in 1:NUM_TESTS){
     tr.test = test[test["Family"]==fam,]
     tr.test = tr.test[,-which(colnames(tr.test)=="Family")]
     
-    tt[[methods[1]]]= predict(mshared[[toString(fam)]],tr.test[,-which(colnames(tr.test) %in% c("Family","Label"))],calibrate=TRUE)
-    tt[[methods[2]]]= predict(perTaskModels[[toString(fam)]][[toString(fam)]],tr.test[,-which(colnames(tr.test) %in% c("Family","Label"))],calibrate=TRUE)
-    tt[[methods[3]]] = predict(mbinary[[toString(1)]],tr.test[,-which(colnames(tr.test) %in% c("Family","Label"))],calibrate=TRUE)
-    tt[[methods[4]]] =predict(logitModels[[toString(fam)]],newx=as.matrix(tr.test[,-which(colnames(tr) %in% c("Family","Label"))]),type="response",s=logitModels[[toString(fam)]]$lambda.min)
-    tt[[methods[5]]] =predict(mlogitbinary,newx=as.matrix(tr.test[,-which(colnames(tr) %in% c("Family","Label"))]),type="response",s=mlogitbinary$lambda.min)
-    tt[[methods[6]]] = predict(mshared2[[toString(fam)]],tr.test[,-which(colnames(tr.test) %in% c("Family","Label"))],calibrate=TRUE)
-    tt[[methods[7]]] = predict(mshared3[[toString(fam)]],tr.test[,-which(colnames(tr.test) %in% c("Family","Label"))],calibrate=TRUE)
-    tt[[methods[8]]] = gplassoPreds[test[,"Family"]==fam]
+    tt[[methods[which(methods=="PANDO")]]]= predict(mshared[[toString(fam)]],tr.test[,-which(colnames(tr.test) %in% c("Family","Label"))],calibrate=TRUE)
+    tt[[methods[which(methods=="PTB")]]]= predict(perTaskModels[[toString(fam)]][[toString(fam)]],tr.test[,-which(colnames(tr.test) %in% c("Family","Label"))],calibrate=TRUE)
+    tt[[methods[which(methods=="BB")]]] = predict(mbinary[[toString(1)]],tr.test[,-which(colnames(tr.test) %in% c("Family","Label"))],calibrate=TRUE)
+    tt[[methods[which(methods=="PTLogit")]]] =predict(logitModels[[toString(fam)]],newx=as.matrix(tr.test[,-which(colnames(tr) %in% c("Family","Label"))]),type="response",s=logitModels[[toString(fam)]]$lambda.min)
+    tt[[methods[which(methods=="BinaryLogit")]]] =predict(mlogitbinary,newx=as.matrix(tr.test[,-which(colnames(tr) %in% c("Family","Label"))]),type="response",s=mlogitbinary$lambda.min)
+    tt[[methods[which(methods=="PANDO2")]]] = predict(mshared2[[toString(fam)]],tr.test[,-which(colnames(tr.test) %in% c("Family","Label"))],calibrate=TRUE)
+    #tt[[methods[7]]] = predict(mshared3[[toString(fam)]],tr.test[,-which(colnames(tr.test) %in% c("Family","Label"))],calibrate=TRUE)
+    tt[[methods[which(methods=="GL")]]] = gplassoPreds[test[,"Family"]==fam]
+    #tt[[methods[9]]] = predict(mshared4[[toString(fam)]],tr.test[,-which(colnames(tr.test) %in% c("Family","Label"))],calibrate=TRUE)
     
     
     
@@ -140,12 +142,14 @@ for(l in 1:NUM_TESTS){
   }
   #####
   
+  alltests=rbind(alltests,allpreds)
+  cat("round ",l," summary:\n********************\n")
   for(method in methods){
-    score=pROC::roc(as.factor(tr.test[,"Label"]),tt[[method]])$auc[1]
+    score=pROC::roc(as.factor(alltests[alltests[,"testnum"]==l,"Label"]),alltests[alltests[,"testnum"]==l,method])$auc[1]
     cat(method," ",score,"\n")
   }
   
-  alltests=rbind(alltests,allpreds)
+  
   
 }
 

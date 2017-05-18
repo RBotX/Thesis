@@ -96,20 +96,26 @@ negative_gradient2 = function(y,preds,groups=NULL){
 
 
 
-TreeWithCoef= function(treeFit,fittedCoef,intercept) {
+TreeWithCoef= function(treeFit,fittedCoef,intercept,treeType="rpart") {
   ### if we make the returned object from here
   ### compatible with "predict", we can 
   ### use the predict.boost
   
-  model = structure(list(treeFit=treeFit,fittedCoef=fittedCoef,intercept=intercept),class="treeWithCoef")
+  model = structure(list(treeFit=treeFit,fittedCoef=fittedCoef,intercept=intercept,treeType=treeType),class="treeWithCoef")
   return(model)
   
 }
 
 predict.treeWithCoef = function(modelObject,newdata){
   fit=modelObject$treeFit
-  #preds = predict(fit,data.frame(x=newdata))
-  preds = predict(fit,newdata) ## 
+  treeType=modelObject$treeType
+  if(treeType=="rpart"){
+    preds = predict(fit,newdata)    
+  }else{
+    preds = predict(fit,data.frame(x=newdata))  
+  }
+  
+  
   #### TODO: change classification instance of the code to work with an underlying regression tree
   # if(fit$method=="class"){  # i think that ANYWAY we never use classification trees, behind the scenes we only do regression trees?
   #   preds=data.frame(preds[,1]) #  this takes the probability to be in class 1  

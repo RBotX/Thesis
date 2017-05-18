@@ -1,17 +1,24 @@
 source("helper.R")
-TrainMultiTaskClassificationGradBoost = function(df,iter=3,v=1,groups,controls,ridge.lambda,target="binary"){
+TrainMultiTaskClassificationGradBoost = function(df,valdata=NULL,iter=3,v=1,groups,controls,ridge.lambda,target="binary",treeType="rpart"){
   families = unique(groups)[unique(groups)!="clean"]
   data = df  
   finalModel=list()
-  
+  isval=!is.null(valdata)
   if(target=="binary"){
-    preds = 0.5 * log( (1+mean(data$Label))/(1-mean(data$Label))  ) ### initial model  
+    preds = 0#0.5 * log( (1+mean(data$Label))/(1-mean(data$Label))  ) ### initial model  
   }else{
     preds = 0#mean(data$Label)
   }
   
   finalModel[[1]]=preds
   yp = rep(preds,nrow(data)) ## initial guess without learning rate?
+  ypscore=yp
+  if(isval){
+    ypval = rep(preds,nrow(valdata)) ## initial guess without learning rate?
+    ypvalscore= ypval
+    
+  }
+  
   #numFamilies = length(unique(groups))-1 ## clean doesn't count as family
   numFamilies = length(unique(groups)) ## clean doesn't count as family
   finalModel[["rate"]]=v
@@ -35,16 +42,23 @@ TrainMultiTaskClassificationGradBoost = function(df,iter=3,v=1,groups,controls,r
       if(target=="regression"){
         cat("train RMSE is:",sqrt(mean((data$Label-yp)**2)),"\n")  
       }else{
-        #cat("train AUC is:")#,pROC::auc(yp,data$label),"\n")  
-        cat("train RMSE is:",sqrt(mean((data$Label-yp)**2)),"\n")  
+        cat("train AUC is:",roc(as.factor(data$Label),as.numeric(ypscore))$auc[1],"\n") 
+        if(!is.null(valdata)){
+          cat("val AUC is:",roc(as.factor(valdata$Label),as.numeric(ypvalscore))$auc[1],"\n")           
+        }
       }
     }
     
     #cat(head(yp,n=50),"-----------\n")
-    pr = negative_gradient(y=data$Label,preds=yp,target=target) ## as if y-yp but multiply each adition by v so it's y-v*yp
+    pr = negative_gradient(y=data$Label,preds=ypscore,target=target) ## as if y-yp but multiply each adition by v so it's y-v*yp
     
     ## create a tree for all families together, 1 vs 0
-    fit=rpart(pr~.,data=data[,-which(colnames(data) %in% c("Label","Family"))],control=controls,method="anova")
+    if(treeType=="rpart"){
+      fit=rpart(pr~.,data=data[,-which(colnames(data) %in% c("Label","Family"))],control=controls,method="anova")  
+    }else{
+      fit = ctree(y~.,data=data.frame(x=data[,-which(colnames(data) %in% c("Label","Family"))],y=pr),control=controls,cores=3)
+    }
+    
     
     
     ### fit model with per leaf score
@@ -172,11 +186,28 @@ TrainMultiTaskClassificationGradBoost = function(df,iter=3,v=1,groups,controls,r
     #   yp = yp + v*famPreds 
     # }
     famPreds=matrix(ncol=1,nrow=length(yp))
+    valfamPreds=matrix(ncol=1,nrow=length(ypval))
     for(fam in families){
       pp = predict(finalModel[[toString(fam)]][[t]],data[data[,"Family"]==fam,-which(colnames(data) %in% c("Label","Family"))])
       famPreds[data[,"Family"]==fam,1]=as.matrix(pp,ncol=1)
+      if(isval){
+        ppval = predict(finalModel[[toString(fam)]][[t]],valdata[valdata[,"Family"]==fam,-which(colnames(data) %in% c("Label","Family"))])  
+        valfamPreds[valdata[,"Family"]==fam,1]=as.matrix(ppval,ncol=1)  
+      }
+    
     }
     yp = yp + v*famPreds
+    if(isval){
+      ypval = ypval + v*valfamPreds
+    }
+    
+    if(target=="binary"){ ## calibrate predictions if binary
+      ypscore = 1/(1+exp(-2*yp)) ## convert to logistic score  
+      if(isval){
+        ypvalscore = 1/(1+exp(-2*ypval)) ## convert to logistic score  
+      }
+    }
+    
     
   }
   #return(finalModel)  

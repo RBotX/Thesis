@@ -22,7 +22,7 @@ schools2[,"Family"] = apply(as.matrix(schools2[,"Family"]),1,function(x){paste0(
 
 
 
-fams = table(schools2[,"Family"])[table(schools2[,"Family"]) > 0]
+fams = table(schools2[,"Family"])[table(schools2[,"Family"]) > 150]
 fams = names(fams)
 schools2=schools2[schools2[,"Family"] %in% fams,]
 
@@ -35,7 +35,7 @@ for(l in 1:NUM_TESTS){
   testidx = c()
   for(fam in unique(schools2[,"Family"])){
     #http://aima.eecs.berkeley.edu/~russell/classes/cs294/f05/papers/evgeniou+al-2005.pdf they take 75-25 train-test split, cited 669 times
-    testidx = c(testidx, sample(which(schools2[,"Family"]==fam),floor(length(which(schools2[,"Family"]==fam))*0.25) )) 
+    testidx = c(testidx, sample(which(schools2[,"Family"]==fam),floor(length(which(schools2[,"Family"]==fam))*0.30) )) 
   }
   
   
@@ -54,8 +54,8 @@ for(l in 1:NUM_TESTS){
   test = data$data[data$testidx,]
   
   mshared=TrainMultiTaskClassificationGradBoost(train,iter=iter,v=rate,groups=train[,"Family"],controls=rpart.control(maxdepth = 3),ridge.lambda=ridge.lambda,target="regression")
-  mshared2=TrainMultiTaskClassificationGradBoost2(train,iter=iter,v=rate,groups=train[,"Family"],controls=rpart.control(maxdepth = 3),ridge.lambda=ridge.lambda,target="regression")
-  mshared3=TrainMultiTaskClassificationGradBoost2(train,iter=iter,v=rate,groups=train[,"Family"],controls=rpart.control(maxdepth = 3),ridge.lambda=ridge.lambda,target="regression",fitCoef="norm2")
+  mshared2=TrainMultiTaskClassificationGradBoost2(train,iter=iter,v=rate,groups=train[,"Family"],controls=ctree_control(maxdepth = 4),ridge.lambda=ridge.lambda,target="regression",treeType="ctree")
+  mshared3=TrainMultiTaskClassificationGradBoost2(train,iter=iter,v=rate,groups=train[,"Family"],controls=ctree_control(maxdepth = 4),ridge.lambda=ridge.lambda,target="regression",fitCoef="norm2",treeType="ctree")
   
   perTaskModels=list()
   logitModels=list()
@@ -190,6 +190,9 @@ for(l in 1:NUM_TESTS){
 for(m in colnames(finalresults2)){
   cat(m ,"mean:",mean(finalresults2[,m]),"std:",sd(finalresults2[,m]), "mean-std:",mean(finalresults2[,m])-sd(finalresults2[,m]),"\n")
 }
+
+
+save.image("schools.Rdata")
 
 
 
