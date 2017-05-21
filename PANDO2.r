@@ -1,22 +1,30 @@
 source("helper.R")
-TrainMultiTaskClassificationGradBoost2 = function(df,valdata=NULL,iter=3,v=1,groups,controls,ridge.lambda,target="binary",df.val=NULL,fitCoef="ls",treeType="rpart"){
-  
+
+TrainMultiTaskClassificationGradBoost2 = function(df,valdata=NULL,earlystopping=100,iter=3,v=1,groups,controls,ridge.lambda,target="binary",df.val=NULL,fitCoef="ls",treeType="rpart"){
+    
+  scoreType = if(target == "binary") "auc" else "rmse"
+  log=list()
+  log[["tscore"]]=c()
+  log[["vscore"]]=c()
   families = unique(groups)[unique(groups)!="clean"]
   data = df  
   finalModel=list()
   isval=!is.null(valdata)
   if(target=="binary"){
-    preds = 0#0.5 * log( (1+mean(data$Label))/(1-mean(data$Label))  ) ### initial model  
+    preds = 0.5 * log( (1+mean(data$Label))/(1-mean(data$Label))  ) ### initial model  
   }else{
-    preds = 0#mean(data$Label)
+    preds = mean(data$Label)
   }
   
   finalModel[[1]]=preds
   yp = rep(preds,nrow(data)) ## initial guess without learning rate?
   ypscore=yp
   if(isval){
+    
     ypval = rep(preds,nrow(valdata)) ## initial guess without learning rate?
     ypvalscore= ypval
+    bestVscore=ypvalscore
+    
     
   }
   
@@ -28,20 +36,29 @@ TrainMultiTaskClassificationGradBoost2 = function(df,valdata=NULL,iter=3,v=1,gro
     finalModel[[toString(fam)]][[1]] = preds
     
   }
-  
+  bestScoreRound=1
   for(t in 2:iter){
+    if((isval)&(t-bestScoreRound > earlystopping)){
+      cat("EARLY STOPPING AT ",t,"\n")
+      break
+    }
+    
+    tscore = scorefunc(label=data$Label,preds=yp,scoreType=scoreType)
+    log[["tscore"]]=c(log[["tscore"]],tscore)
+    if(!is.null(valdata)){
+        vscore = scorefunc(label=valdata$Label,preds=ypvalscore,scoreType=scoreType)
+        if(((vscore > bestVscore)&(scoreType == "auc"))||((vscore < bestVscore)&(scoreType == "rmse"))){
+          bestVscore = vscore
+          bestScoreRound=t
+        }
+        
+        log[["vscore"]]=c(log[["vscore"]],vscore)
+    }
+  
+    
     ### pseudo responses
     if(t%%20 == 0){
       cat("iteration ",t,"\n")
-      if(target=="regression"){
-        cat("train RMSE is:",sqrt(mean((data$Label-yp)**2)),"\n")  
-      }else{
-        cat("train AUC is:",roc(as.factor(data$Label),as.numeric(ypscore))$auc[1],"\n") 
-        if(!is.null(valdata)){
-          cat("val AUC is:",roc(as.factor(valdata$Label),as.numeric(ypvalscore))$auc[1],"\n")           
-        }
-        
-      }
     }
     
     #cat(head(yp,n=50),"-----------\n")
@@ -157,16 +174,22 @@ TrainMultiTaskClassificationGradBoost2 = function(df,valdata=NULL,iter=3,v=1,gro
       if(isval){
         ypvalscore = 1/(1+exp(-2*ypval)) ## convert to logistic score  
       }
-      
-
+    }else{
+      ypscore=yp
+      if(isval){
+        ypvalscore=ypval
+      }
     }
     
   }
   
   ret=list()
   for(fam in families){
-    ret[[toString(fam)]] = BoostingModel(finalModel[[toString(fam)]],rate=rate)
+    if(!isval){
+      bestScoreRound=iter
+    }
+    ret[[toString(fam)]] = BoostingModel(finalModel[[toString(fam)]][1:bestScoreRound],rate=rate)
   }
-  
+  ret[["log"]]=log
   return(ret)  
 }

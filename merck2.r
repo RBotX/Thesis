@@ -1,4 +1,6 @@
 setwd("/home/dan/Thesis")
+
+library(data.table)
 source("helper.R")
 source("PANDO.r")
 source("PANDO2.r")
@@ -6,36 +8,41 @@ library(MASS)
 library(grpreg)
 library(xtable)
 library(knitr)
+library(fastICA)
+library(caret)
+library(dummies)
 
-
-
+generateData=FALSE
 set.seed(1)
-schools=read.csv("schools.csv")
-schools=schools[,-1]
+if(generateData){
+  schools=fread("/home/dan/Thesis/merck.csv")
+  schools=data.frame(schools)
+  
+  schools2=schools
+  rm(schools)
+  schools2 = schools2[sample(nrow(schools2)),]
+  schools3 = schools2[sample(1:nrow(schools2),nrow(schools2)*0.3), ]
+  nz=nearZeroVar(schools3)
+  
+  schools2=schools2[,-nz]
+  write.csv(schools2,"/home/dan/Thesis/merck_nzv.csv")
+}
 
+schools2=read.csv("/home/dan/Thesis/merck_nzv.csv")
+schools2[is.na(schools2)]=0
+s=svd(na.omit(schools2))
 
-schools2=schools
-colnames(schools2)[which(colnames(schools2)=="target")]="Label"
-
-colnames(schools2)[which(colnames(schools2)=="task")]="Family"
-schools2[,"Family"] = apply(as.matrix(schools2[,"Family"]),1,function(x){paste0("fam",toString(x))})
-
-
-
-fams = table(schools2[,"Family"])[table(schools2[,"Family"]) > 150]
-fams = names(fams)
-schools2=schools2[schools2[,"Family"] %in% fams,]
-
+tt = dummy.data.frame(schools2)
 
 alltests=c()
-NUM_TESTS=10
+NUM_TESTS=1
 for(l in 1:NUM_TESTS){
   cat("train-test split number ",l,"\n")
   set.seed(l)
   testidx = c()
   for(fam in unique(schools2[,"Family"])){
     #http://aima.eecs.berkeley.edu/~russell/classes/cs294/f05/papers/evgeniou+al-2005.pdf they take 75-25 train-test split, cited 669 times
-    testidx = c(testidx, sample(which(schools2[,"Family"]==fam),floor(length(which(schools2[,"Family"]==fam))*0.30) )) 
+    testidx = c(testidx, sample(which(schools2[,"Family"]==fam),floor(length(which(schools2[,"Family"]==fam))*0.98) )) 
   }
   
   
@@ -45,7 +52,7 @@ for(l in 1:NUM_TESTS){
   data[["testidx"]]=testidx
   
   
-  iter=550
+  iter=10
   rate=0.01
   ridge.lambda=1  
   #data=GenerateData(d=d,ntrain=ntrain,ntest=ntest,seed=i)
@@ -53,9 +60,9 @@ for(l in 1:NUM_TESTS){
   train = data$data[-data$testidx,]
   test = data$data[data$testidx,]
   
-  mshared=TrainMultiTaskClassificationGradBoost(train,val=test,iter=iter,v=rate,groups=train[,"Family"],controls=rpart.control(maxdepth = 3,cp=0.0001),ridge.lambda=ridge.lambda,target="regression")
-  mshared2=TrainMultiTaskClassificationGradBoost2(train,val=test,iter=iter,v=rate,groups=train[,"Family"],controls=rpart.control(maxdepth = 3,cp=0.0001),ridge.lambda=ridge.lambda,target="regression",treeType="rpart")
-  mshared3=TrainMultiTaskClassificationGradBoost2(train,val=test,iter=iter,v=rate,groups=train[,"Family"],controls=rpart.control(maxdepth = 3,cp=0.0001),ridge.lambda=ridge.lambda,target="regression",fitCoef="norm2",treeType="rpart")
+  mshared=TrainMultiTaskClassificationGradBoost(train,iter=iter,v=rate,groups=train[,"Family"],controls=rpart.control(maxdepth = 5),ridge.lambda=ridge.lambda,target="regression")
+  mshared2=TrainMultiTaskClassificationGradBoost2(train,iter=iter,v=rate,groups=train[,"Family"],controls=ctree_control(maxdepth = 5),ridge.lambda=ridge.lambda,target="regression",treeType="ctree")
+  mshared3=TrainMultiTaskClassificationGradBoost2(train,iter=iter,v=rate,groups=train[,"Family"],controls=rpart.control(maxdepth = 5),ridge.lambda=ridge.lambda,target="regression",fitCoef="norm2")
   
   perTaskModels=list()
   logitModels=list()
@@ -74,20 +81,20 @@ for(l in 1:NUM_TESTS){
   binaryData["Family"]=1
   mbinary=TrainMultiTaskClassificationGradBoost(binaryData,iter=iter,v=rate,groups=matrix(1,nrow=nrow(binaryData),ncol=1),controls=rpart.control(maxdepth = 3),ridge.lambda=ridge.lambda,target="regression")  
   mlogitbinary = cv.glmnet(x=as.matrix(binaryData[,-which(colnames(tr) %in% c("Family","Label"))]),y=binaryData[,"Label"],family="gaussian",alpha=1,maxit=10000,nfolds=4, thresh=1E-4)
-    
+  
   gplassotraindata = CreateGroupLassoDesignMatrix(train)
   gplassoX = (gplassotraindata$X)[,-ncol(gplassotraindata$X)]
   gplassoy =  (gplassotraindata$X)[,ncol(gplassotraindata$X)]
   #gplassoy[gplassoy==-1]=0
-
+  
   mgplasso = cv.grpreg(gplassoX, gplassoy, group=gplassotraindata$groups, nfolds=2, maxit=10000,seed=777,family="gaussian",trace=TRUE)
-
+  
   gplassotestdata = CreateGroupLassoDesignMatrix(test)
   gplassotestX = (gplassotestdata$X)[,-ncol(gplassotestdata$X)]
   gplassotesty =  (gplassotestdata$X)[,ncol(gplassotestdata$X)]
-
+  
   gplassoPreds = predict(mgplasso,gplassotestX,type="response",lambda=mgplasso$lambda.min)
-
+  
   methods = c("PANDO","PTB","BB","PTLogit","BinaryLogit","PANDO2","PANDO3","GL")
   
   rc=list()
@@ -192,7 +199,7 @@ for(m in colnames(finalresults2)){
 }
 
 
-save.image("schools.Rdata")
+
 
 
 

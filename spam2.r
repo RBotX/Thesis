@@ -11,10 +11,10 @@ library(knitr)
 ## http://www.jmlr.org/papers/volume8/xue07a/xue07a.pdf
 ## families 1-15 are from highliy foliated regions
 ## families 16-29 are from earth/desert regions
-schools2=read.csv("LandmineData.csv",stringsAsFactors = FALSE)
+schools2=read.csv("spamtfidf.csv",stringsAsFactors = FALSE)
 schools2=schools2[,-1]
 schools2[schools2[,"Label"]==0,"Label"]=-1
-schools2=schools2[schools2[,"Family"] %in% paste0("fam",0:15),]
+
 
 
 
@@ -22,7 +22,7 @@ schools2=schools2[schools2[,"Family"] %in% paste0("fam",0:15),]
 alltests=c()
 NUM_TESTS=1
 for(l in 1:NUM_TESTS){
-  set.seed(l)
+  set.seed(l+1)
   testidx = c()
   validx = c()
   trainidx = c()
@@ -58,7 +58,7 @@ for(l in 1:NUM_TESTS){
   
   
   cat("starting pando2\n")
-  mshared2=TrainMultiTaskClassificationGradBoost2(train,iter=iter,v=rate,groups=train[,"Family"],controls=rpart.control(maxdepth =2, cp=0.0001),ridge.lambda=ridge.lambda,target="binary",treeType="rpart",valdata=val)
+  mshared2=TrainMultiTaskClassificationGradBoost2(train,iter=iter,v=rate,groups=train[,"Family"],controls=rpart.control(maxdepth = 2, cp=0.0001),ridge.lambda=ridge.lambda,target="binary",treeType="rpart",valdata=val)
   
   
   mshared3=TrainMultiTaskClassificationGradBoost(train,iter=iter,v=rate,groups=train[,"Family"],controls=rpart.control(maxdepth = 2, cp=0.0001),ridge.lambda=ridge.lambda,target="binary",valdata=val,fitTreeCoef = TRUE)
@@ -211,3 +211,15 @@ for(l in 1:NUM_TESTS){
 for(m in colnames(finalresults)){
   cat(m ,"mean:",mean(finalresults[,m]),"std:",sd(finalresults[,m]), "mean+std:",mean(finalresults[,m])-sd(finalresults[,m]),"\n")
 }
+
+
+
+
+
+
+
+
+
+
+
+

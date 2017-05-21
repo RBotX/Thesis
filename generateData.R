@@ -500,47 +500,7 @@ for(fam in unique(test[,"Family"])){
 
 
 
-library(plyr)
-library(ggplot2)
-library(reshape2)
-x1=c()
-x2=c()
-x3=c()
-imp1=list()
-imp2=list()
-imp3=list()
-perFamilyVars = list()
-families = unique(train[,"Family"])
-for(fam in c("fam2")){
-  
-  tt1=BoostingModelFeatureImportance(mshared[[fam]])
-  tt2=BoostingModelFeatureImportance(perTaskModels[[fam]][[fam]])
-  tt3=BoostingModelFeatureImportance(mbinary[["1"]])
-  x1=c(x1,names(tt1))
-  x2=c(x2,names(tt2))
-  x3=c(x3,names(tt3))
-  perFamilyVars[[fam]]=names(tt2)
-  for(n in names(tt1)){
-    if(is.null(imp1[[n]])){
-      imp1[[n]]=0
-    }
-    imp1[[n]]=imp1[[n]]+tt1[[n]]
-  }
-  for(n in names(tt2)){
-    if(is.null(imp2[[n]])){
-      imp2[[n]]=0
-    }
-    imp2[[n]]=imp2[[n]]+tt2[[n]]
-  }
-  for(n in names(tt3)){
-    if(is.null(imp3[[n]])){
-      imp3[[n]]=0
-    }
-    imp3[[n]]=imp3[[n]]+tt3[[n]]
-  }
-  
-  
-}
+
 
 
 plotImp = function(df,signalVars, title){
@@ -603,51 +563,6 @@ dff3norm <- base::transform(dff3norm, varname = reorder(varname, -value))
 plotImp(dff3norm,paste0("X",1:11),"cumm. variable importance across tasks - BinaryBoosting")
 
 
-# dff <- melt(ldply(imp1, data.frame))
-# dff=dff[,-2]
-# colnames(dff)=c("varname","value")
-# dff=dff[order(-dff[,"value"]),]
-# thm = theme(text = element_text(size=15),
-#             axis.text.x = element_text(size=8))
-# 
-# 
-# 
-# p1 = ggplot(head(dff,n=80), aes(varname, weight = value)) + geom_bar()
-# p1 = p1 + labs(title = paste("cumm. variable importance across tasks - PANDO"))
-# p1 = p1+ylab("split gain")
-# 
-# #p = p + scale_fill_manual(values=c("darkgreen","darkred"))
-# 
-# p1=p1+thm
-# p1
-# 
-# 
-# 
-# dff2 <- melt(ldply(imp2, data.frame))
-# dff2=dff2[,-2]
-# colnames(dff2)=c("varname","value")
-# dff2=dff2[order(-dff2[,"value"]),]
-# #p = ggplot(dff, aes(varname, weight = value,fill=color)) + geom_bar()
-# p2 = ggplot(head(dff2,n=80), aes(varname, weight = value)) + geom_bar()
-# p2 = p2 + labs(title = paste("cumm. variable importance across tasks - PTB"))
-# p2 = p2+ylab("split gain")
-# 
-# p2=p2+thm
-# p2
-# 
-# 
-# dff3 <- melt(ldply(imp3, data.frame))
-# dff3=dff3[,-2]
-# colnames(dff3)=c("varname","value")
-# dff3=dff3[order(-dff3[,"value"]),]
-# #p = ggplot(dff, aes(varname, weight = value,fill=color)) + geom_bar()
-# p3 = ggplot(head(dff3,n=80), aes(varname, weight = value)) + geom_bar()
-# p3 = p3 + labs(title = paste("cumm. variable importance across tasks - BinaryBoosting"))
-# p3 = p3+ylab("split gain")
-# 
-# p3=p3+thm
-# p3
-
 
 
 ### normalized versions:
@@ -706,24 +621,7 @@ p5
 
 
 
-#### feature importance for linear models:
 
-#print_glmnet_coefs <- function(cvfit, s="lambda.min") {
-#  ind <- which(coef(cvfit, s=s) != 0)
-#  df <- data.frame(
-#    feature=rownames(coef(cvfit, s=s))[ind],
-#    coeficient=coef(cvfit, s=s)[ind]
-#  )
-#  kable(df)
-#  return(df)
-#}
-## coefs for smallest lambda
-
-#vimp=print_glmnet_coefs(mgplasso)
-
-
-#small.lambda.index <- which(cv$lambda == cv$lambda.min)
-#small.lambda.betas <- cv$glmnet.fit$beta[, small.lambda.index]
 
 dd = matrix(coef(mgplasso))
 dd=matrix(dd)

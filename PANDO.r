@@ -1,13 +1,18 @@
 source("helper.R")
-TrainMultiTaskClassificationGradBoost = function(df,valdata=NULL,iter=3,v=1,groups,controls,ridge.lambda,target="binary",treeType="rpart"){
+TrainMultiTaskClassificationGradBoost = function(df,valdata=NULL,earlystopping=100,iter=3,v=1,groups,controls,ridge.lambda,target="binary",treeType="rpart",fitTreeCoef=FALSE){
+  scoreType = if(target == "binary") "auc" else "rmse"
+  log=list()
+  log[["tscore"]]=c()
+  log[["vscore"]]=c()
+  
   families = unique(groups)[unique(groups)!="clean"]
   data = df  
   finalModel=list()
   isval=!is.null(valdata)
   if(target=="binary"){
-    preds = 0#0.5 * log( (1+mean(data$Label))/(1-mean(data$Label))  ) ### initial model  
+    preds = 0.5 * log( (1+mean(data$Label))/(1-mean(data$Label))  ) ### initial model  
   }else{
-    preds = 0#mean(data$Label)
+    preds = mean(data$Label)
   }
   
   finalModel[[1]]=preds
@@ -16,6 +21,8 @@ TrainMultiTaskClassificationGradBoost = function(df,valdata=NULL,iter=3,v=1,grou
   if(isval){
     ypval = rep(preds,nrow(valdata)) ## initial guess without learning rate?
     ypvalscore= ypval
+    bestVscore=ypvalscore
+    
     
   }
   
@@ -28,25 +35,34 @@ TrainMultiTaskClassificationGradBoost = function(df,valdata=NULL,iter=3,v=1,grou
     
     
   }
-  
+  bestScoreRound=1
   for(t in 2:iter){
+    if((isval)&(t-bestScoreRound > earlystopping)){
+      cat("EARLY STOPPING AT ",t,"\n")
+      break
+    }
     ## for each new tree, we have a new leaf->coef per family
     for(fam in families){
       leavesToCoefs = list()
       leavesToCoefs[[toString(fam)]]=list() 
     }
     
+    tscore = scorefunc(label=data$Label,preds=yp,scoreType=scoreType)
+    log[["tscore"]]=c(log[["tscore"]],tscore)
+    if(!is.null(valdata)){
+      vscore = scorefunc(label=valdata$Label,preds=ypvalscore,scoreType=scoreType)
+      if(((vscore > bestVscore)&(scoreType == "auc"))||((vscore < bestVscore)&(scoreType == "rmse"))){
+        bestVscore = vscore
+        bestScoreRound=t
+      }
+      log[["vscore"]]=c(log[["vscore"]],vscore)
+      
+    }
+    
+    
     ### pseudo responses
     if(t%%20 == 0){
       cat("iteration ",t,"\n")
-      if(target=="regression"){
-        cat("train RMSE is:",sqrt(mean((data$Label-yp)**2)),"\n")  
-      }else{
-        cat("train AUC is:",roc(as.factor(data$Label),as.numeric(ypscore))$auc[1],"\n") 
-        if(!is.null(valdata)){
-          cat("val AUC is:",roc(as.factor(valdata$Label),as.numeric(ypvalscore))$auc[1],"\n")           
-        }
-      }
     }
     
     #cat(head(yp,n=50),"-----------\n")
@@ -162,31 +178,31 @@ TrainMultiTaskClassificationGradBoost = function(df,valdata=NULL,iter=3,v=1,grou
     ### when we predic in the predict.boost stage...
     for(fam in families){
       
-      finalModel[[toString(fam)]][[t]] = TreeWithLeafCoefs(fit,leavesToCoefs[[toString(fam)]])      
+      finalModel[[toString(fam)]][[t]] = TreeWithLeafCoefs(fit,leavesToCoefs[[toString(fam)]])
+      if(fitTreeCoef){
+        famX = predict(finalModel[[toString(fam)]][[t]] ,data[(data[,"Family"]==fam),-which(colnames(data) %in% c("Label","Family"))])        
+        famy = pr[(data[,"Family"]==fam)]
+        lmdf = matrix(ncol=2,nrow=length(famX))
+        lmdf[,1]=as.matrix(famX,ncol=1)
+        lmdf[,2]=as.matrix(famy,ncol=1)
+        colnames(lmdf)=c("x","y")
+        lmdf = data.frame(lmdf)
+        mm = lm(y~x -1,data=lmdf)
+        fittedCoef = as.numeric(coef(mm)[1])
+        if(is.na(fittedCoef)){
+          fittedCoef=1
+        }
+        fittedIntercept = 0
+        finalModel[[toString(fam)]][[t]] = TreeWithCoef(finalModel[[toString(fam)]][[t]],fittedCoef,fittedIntercept,treeType="rpart")
+      }
+      
     }
     
-    ## generate new pseduo-responses:
-    
-    #lastFamPredsLength=0
-    # for(fam in families){
-    #   famPreds = predict(finalModel[[toString(fam)]][[t]],data[data[,"Family"]==fam,-which(colnames(data) %in% c("Label","Family"))])       
-    #   #cat(head(famPreds),"\n")
-    #   famPreds = as.matrix(famPreds,nrow=length(famPreds),ncol=1)
-    #   lastFamPredsLength=lastFamPredsLength+length(famPreds)
-    #   if(lastFamPredsLength>length(famPreds)){
-    #     zeroesToPad = lastFamPredsLength-length(famPreds)
-    #     famPreds = rbind(matrix(0,nrow=zeroesToPad,ncol=1),famPreds)
-    #     
-    #   }
-    #   if(length(famPreds)<length(yp)){
-    #     zeroesToPad = length(yp)-length(famPreds)
-    #     famPreds=rbind(famPreds,matrix(0,nrow=zeroesToPad,ncol=1))
-    #   }
-    #   
-    #   yp = yp + v*famPreds 
-    # }
     famPreds=matrix(ncol=1,nrow=length(yp))
-    valfamPreds=matrix(ncol=1,nrow=length(ypval))
+    if(isval){
+      valfamPreds=matrix(ncol=1,nrow=length(ypval))      
+    }
+
     for(fam in families){
       pp = predict(finalModel[[toString(fam)]][[t]],data[data[,"Family"]==fam,-which(colnames(data) %in% c("Label","Family"))])
       famPreds[data[,"Family"]==fam,1]=as.matrix(pp,ncol=1)
@@ -206,6 +222,12 @@ TrainMultiTaskClassificationGradBoost = function(df,valdata=NULL,iter=3,v=1,grou
       if(isval){
         ypvalscore = 1/(1+exp(-2*ypval)) ## convert to logistic score  
       }
+    }else{
+      ypscore=yp
+      if(isval){
+        ypvalscore=ypval
+      }
+      
     }
     
     
@@ -213,9 +235,13 @@ TrainMultiTaskClassificationGradBoost = function(df,valdata=NULL,iter=3,v=1,grou
   #return(finalModel)  
   ret=list()
   for(fam in families){
-    ret[[toString(fam)]] = BoostingModel(finalModel[[toString(fam)]],rate=rate)
+    if(!isval){
+      bestScoreRound=iter
+    }
+    ret[[toString(fam)]] = BoostingModel(finalModel[[toString(fam)]][1:bestScoreRound],rate=rate)
   }
   ret[["rate"]]=v
+  ret[["log"]]=log
   return(ret)  
   
 }

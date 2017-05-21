@@ -4,8 +4,22 @@ require(caret)
 require(glmnet)
 require(MASS)
 require(partykit)
+library(plyr)
+library(ggplot2)
+library(reshape2)
+
 
 ##########################################
+scorefunc = function(label,preds,scoreType){
+  if(scoreType=="rmse"){
+    return(sqrt(mean((label-preds)**2)))
+  }
+  if(scoreType=="auc"){
+    roc(as.factor(label),as.numeric(preds))$auc[1]    
+  }
+}
+
+
 CreateGroupLassoDesignMatrix = function(X){
   
   families = unique(X[,"Family"])
@@ -180,12 +194,15 @@ BoostingModel= function(model,rate) {
   
 }
 
-predict.BoostingModel = function(m,X,calibrate=TRUE){
+predict.BoostingModel = function(m,X,calibrate=TRUE,bestIt=NULL){
   
   rate=m$rate
   ## first, for each of the fitted sub models, create a prediction at X
   pred=rep(m$modelList[[1]],nrow(X)) ## fill with the initial guess
-  for(i in 2:length(m$modelList)){
+  if(is.null(bestIt)){
+    bestIt=length(m$modelList)
+  }
+  for(i in 2:bestIt){
     mm = m$modelList[[i]]  # extract i-th model
     newpred=predict(modelObject=mm,newdata=X)
     pred = pred+(rate*newpred)
@@ -237,8 +254,42 @@ BoostingModelFeatureImportance = function(model){
   return(importances)
 }
 
-plotFeatureImportace = function(imp){
+
+
+
+featureImp.BoostingModel = function(m){
+  x1=c()
+  x2=c()
+  x3=c()
+  imp1=list()
+  imp2=list()
+  imp3=list()
+  perFamilyVars = list()
+  families = unique(train[,"Family"])
   
+  tt1=BoostingModelFeatureImportance(m)
+  x1=c(x1,names(tt1))
+  for(n in names(tt1)){
+    if(is.null(imp1[[n]])){
+      imp1[[n]]=0
+    }
+    imp1[[n]]=imp1[[n]]+tt1[[n]]
+  }
+  return(imp1)
 }
 
+plotFeatureImportace.BoostingModel = function(m,title=""){
+  imp1=featureImp(m) # dispatch feature importance
+  dff <- melt(ldply(imp1, data.frame))
+  dff=dff[,-2]
+  colnames(dff)=c("varname","value")
+  dff=dff[order(-dff[,"value"]),]
+  dffnorm=dff
+  dffnorm[,"value"]=dffnorm[,"value"]/sum(dffnorm[,"value"])
+  colnames(dffnorm)=c("varname","value")
+  dffnorm <- base::transform(dffnorm, varname = reorder(varname, -value))
+  plotImp(dffnorm,paste0("X",1:11),title)
+}
+
+    
 
