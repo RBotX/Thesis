@@ -11,7 +11,7 @@ library(knitr)
 ## http://www.jmlr.org/papers/volume8/xue07a/xue07a.pdf
 ## families 1-15 are from highliy foliated regions
 ## families 16-29 are from earth/desert regions
-schools2=read.csv("spamtfidf.csv",stringsAsFactors = FALSE)
+schools2=read.csv("spamtfidf.csv",stringsAsFactors = FALSE) # with sparsity factor 0.9
 schools2=schools2[,-1]
 schools2[schools2[,"Label"]==0,"Label"]=-1
 
@@ -28,10 +28,10 @@ for(l in 1:NUM_TESTS){
   trainidx = c()
   for(fam in unique(schools2[,"Family"])){
     
-    testidx = c(testidx, sample(which(schools2[,"Family"]==fam),floor(length(which(schools2[,"Family"]==fam))*0.3) ))
+    testidx = c(testidx, sample(which(schools2[,"Family"]==fam),floor(length(which(schools2[,"Family"]==fam))*0.4) ))
     famtrain = setdiff(which(schools2[,"Family"]==fam),testidx)
     famvalidx = sample(famtrain,0.1*length(famtrain) ) #val 10% of train
-    validx = c(validx,famvalidx) 
+    validx = c(validx,famvalidx)
     famtrain = setdiff(famtrain,validx) # remove validation from train
     trainidx = c(trainidx,famtrain)
   }
@@ -60,10 +60,11 @@ for(l in 1:NUM_TESTS){
   cat("starting pando2\n")
   mshared2=TrainMultiTaskClassificationGradBoost2(train,iter=iter,v=rate,groups=train[,"Family"],controls=rpart.control(maxdepth = 2, cp=0.0001),ridge.lambda=ridge.lambda,target="binary",treeType="rpart",valdata=val)
   
-  
+  cat("starting pando3\n")
   mshared3=TrainMultiTaskClassificationGradBoost(train,iter=iter,v=rate,groups=train[,"Family"],controls=rpart.control(maxdepth = 2, cp=0.0001),ridge.lambda=ridge.lambda,target="binary",valdata=val,fitTreeCoef = TRUE)
   
-  mshared4=TrainMultiTaskClassificationGradBoost(train,iter=iter,v=rate,groups=train[,"Family"],controls=rpart.control(maxdepth = 2, cp=0.0001),ridge.lambda=0,target="binary",valdata=val,fitTreeCoef = FALSE)
+  cat("starting pando4\n")
+  mshared4=TrainMultiTaskClassificationGradBoost(train,iter=iter,v=rate,groups=train[,"Family"],controls=rpart.control(maxdepth = 2, cp=0.0001),ridge.lambda=2,target="binary",valdata=val,fitTreeCoef = FALSE)
   
   
   
@@ -125,7 +126,7 @@ for(l in 1:NUM_TESTS){
   for(fam in unique(test[,"Family"])){
     k = k+1
     testidxs = which(test["Family"]==fam)
-    compmatrix = matrix(nrow=length(methods),ncol = length(methods))
+    compmatrix = matrix(NA,nrow=length(methods),ncol = length(methods))
     
     tr.test = test[test["Family"]==fam,]
     tr.test = tr.test[,-which(colnames(tr.test)=="Family")]
@@ -166,7 +167,11 @@ for(l in 1:NUM_TESTS){
         if(i >=j ){
           next
         }
-        compmatrix[i,j] = 0#signif(pROC::roc.test(rc[[methods[i]]],rc[[methods[j]]])$p.value, digits = 3)
+        #cat("setting compmatrix",i," ",j,"\n")
+        compmatrix[i,j] = signif(pROC::roc.test(rc[[methods[i]]],rc[[methods[j]]])$p.value, digits = 3)
+        if(rc[[methods[i]]]$auc[1] < rc[[methods[j]]]$auc[1]){
+          compmatrix[i,j] = compmatrix[i,j]*-1
+        }
         cat("auc  for ",fam," ", methods[i]," VS ",methods[j],": ",round((rc[[methods[i]]]$auc[1]),4)," ",round((rc[[methods[j]]]$auc[1]),4),"\n")
       }
     }
@@ -211,6 +216,22 @@ for(l in 1:NUM_TESTS){
 for(m in colnames(finalresults)){
   cat(m ,"mean:",mean(finalresults[,m]),"std:",sd(finalresults[,m]), "mean+std:",mean(finalresults[,m])-sd(finalresults[,m]),"\n")
 }
+
+
+compmat2=matrix(NA,nrow=length(unique(test[,"Family"])),ncol=length(methods))
+rownames(compmat2)=unique(test[,"Family"])
+colnames(compmat2)=methods
+for(fam in unique(test[,"Family"])){
+  testidxs = (test["Family"]==fam)
+  for(method in methods){
+    compmat2[which(rolnames(compmat2)==family),which(colnames(compmat2)==method)]=roc(as.factor(alltests[(alltests[,"testnum"]==l)&(testidxs),"Label"]),alltests[(alltests[,"testnum"]==l)&(testidxs),method])$auc[1]
+    
+  }
+}
+
+
+
+
 
 
 

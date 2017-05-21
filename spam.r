@@ -15,7 +15,7 @@ data.sparse = sparseMatrix(as.integer(dff$row), as.integer(dff$col), x = dff$val
 colnames(data.sparse) = levels(dff$col)
 rownames(data.sparse) = levels(dff$row)
 dtm  = as.DocumentTermMatrix(data.sparse,weighting = weightTfIdf)
-dtm2=removeSparseTerms(dtm,0.9)
+dtm2=removeSparseTerms(dtm,0.85) #### used to be 0.9
 alldata=data.frame(as.matrix(dtm2))
 alldata[,"Family"]=NA
 #alldata[1,]=dff[dff[row==1]]
