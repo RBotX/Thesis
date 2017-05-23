@@ -22,7 +22,8 @@ schools2[schools2[,"Label"]==0,"Label"]=-1
 alltests=c()
 NUM_TESTS=1
 for(l in 1:NUM_TESTS){
-  set.seed(l+1)
+  #set.seed(l+1)
+  set.seed(l+10)
   testidx = c()
   validx = c()
   trainidx = c()
@@ -79,9 +80,9 @@ for(l in 1:NUM_TESTS){
     
     cat("fam ",fam,"\n")
     tr = train[train[,"Family"]==fam,]
-    tr.val = test[train[,"Family"]==fam,]
-    m0 = TrainMultiTaskClassificationGradBoost(tr,groups = matrix(fam,nrow=nrow(tr),ncol=1),iter=400,v=0.01,
-                                               controls=rpart.control(maxdepth = 2,cp=0.0001), ridge.lambda = ridge.lambda,target="binary",valdata=NULL)  
+    tr.val = val[val[,"Family"]==fam,]
+    m0 = TrainMultiTaskClassificationGradBoost(tr,valdata=tr.val,groups = matrix(fam,nrow=nrow(tr),ncol=1),iter=iter,v=0.01,
+                                               controls=rpart.control(maxdepth = 2,cp=0.0001), ridge.lambda = ridge.lambda,target="binary")  
     perTaskModels[[toString(fam)]]=m0
     logitModels[[toString(fam)]]= cv.glmnet(x=as.matrix(tr[,-which(colnames(tr) %in% c("Family","Label"))]),y=tr[,"Label"],family="binomial",alpha=1,maxit=10000,nfolds=3, thresh=1E-4)
   }
@@ -224,18 +225,27 @@ colnames(compmat2)=methods
 for(fam in unique(test[,"Family"])){
   testidxs = (test["Family"]==fam)
   for(method in methods){
-    compmat2[which(rolnames(compmat2)==family),which(colnames(compmat2)==method)]=roc(as.factor(alltests[(alltests[,"testnum"]==l)&(testidxs),"Label"]),alltests[(alltests[,"testnum"]==l)&(testidxs),method])$auc[1]
+    compmat2[which(rownames(compmat2)==fam),which(colnames(compmat2)==method)]=roc(as.factor(alltests[(alltests[,"testnum"]==l)&(testidxs),"Label"]),alltests[(alltests[,"testnum"]==l)&(testidxs),method])$auc[1]
     
   }
 }
 
 
+#### seed=1 or 2 got BB vs PANDO2 with 
+# Z = -2.2629, p-value = 0.02364
+# alternative hypothesis: true difference in AUC is not equal to 0
+# sample estimates:
+#   AUC of roc1 AUC of roc2 
+# 0.9796171   0.9823319 
+
+roc.test(roc(as.factor(alltests[alltests[,"testnum"]==l,"Label"]),alltests[alltests[,"testnum"]==l,"BB"]),
+         roc(as.factor(alltests[alltests[,"testnum"]==l,"Label"]),alltests[alltests[,"testnum"]==l,"PANDO4"]))
 
 
 
 
 
-
+save.image()
 
 
 
