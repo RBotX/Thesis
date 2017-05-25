@@ -503,7 +503,7 @@ for(fam in unique(test[,"Family"])){
 
 
 
-plotImp = function(df,signalVars, title){
+plotImp2 = function(df,signalVars=c(), title){
   
   df[,"value"]=df[,"value"]/sum(df[,"value"])
   colnames(df)=c("varname","value")
