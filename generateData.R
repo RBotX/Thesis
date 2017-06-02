@@ -3,6 +3,7 @@ library(MASS)
 library(grpreg)
 library(xtable)
 library(knitr)
+source("helper.R")
 ### our boolean functino is, for example: x1 and X2 and X7 and X8 (or some other function, maybe less linear)
 ### we classify as 1 all cases when this is TRUE and 0 otherwise
 ### each family has a slightly different probability of Xi being 1. 
@@ -23,42 +24,42 @@ boolfunc = function(x){
   }
 }
 
-## X has a "family" column
-## we need to also add an intercept to each problem, as the grplaso package requests that in the design matrix
-##
-CreateGroupLassoDesignMatrix = function(X){
-  
-  families = unique(X[,"Family"])
-  ntasks=length(families)
-  colsPerTask = (ncol(X)-2) # removing label and family columns
-  colsPerTask = colsPerTask+1 # adding intercept column per each task (two different rows of code just for readibility)
-  Xgl = matrix(0,nrow=nrow(X),ncol=(colsPerTask*ntasks)+1) # the +1 is for the label
-  cat(nrow(Xgl),"XGL",ncol(Xgl),"\n")
-  i=0
-  cat("ncol of xgl is:",ncol(Xgl),"\n")
-  groups=rep(1:colsPerTask,ntasks) # which group each variable belongs to. in our case, we group the same variable across tasks
-  for(fam in families){
-    cat(fam,"\n")
-    nr = nrow(X[X[,"Family"]==fam,]) ## how many instances for this family/task
-    nc = colsPerTask ## we know in our formulation that all tasks share the same number of features
-    rowstart=(i*nr)+1
-    rowend = (i+1)*nr
-    colstart = (i*nc)+1
-    colend = (i+1)*nc
-    cat(rowstart,"->",rowend,"\n")
-    cat(colstart,"->",colend,"\n")
-    Xgl[rowstart:rowend,colstart:(colend-1)]=as.matrix(X[X[,"Family"]==fam,-which(colnames(X) %in% c("Family","Label"))])
-    Xgl[rowstart:rowend,colend]=matrix(1,nrow=length(rowstart:rowend),ncol=1) ## add intercept per task
-    ## add label
-    Xgl[rowstart:rowend,ncol(Xgl)] = as.matrix(X[X[,"Family"]==fam,"Label"])
-    i=i+1
-    
-  }
-  ret=list()
-  ret[["X"]]=Xgl
-  ret[["groups"]]=groups
-  return(ret)
-}
+# ## X has a "family" column
+# ## we need to also add an intercept to each problem, as the grplaso package requests that in the design matrix
+# ##
+# CreateGroupLassoDesignMatrix = function(X){
+#   
+#   families = unique(X[,"Family"])
+#   ntasks=length(families)
+#   colsPerTask = (ncol(X)-2) # removing label and family columns
+#   colsPerTask = colsPerTask+1 # adding intercept column per each task (two different rows of code just for readibility)
+#   Xgl = matrix(0,nrow=nrow(X),ncol=(colsPerTask*ntasks)+1) # the +1 is for the label
+#   cat(nrow(Xgl),"XGL",ncol(Xgl),"\n")
+#   i=0
+#   cat("ncol of xgl is:",ncol(Xgl),"\n")
+#   groups=rep(1:colsPerTask,ntasks) # which group each variable belongs to. in our case, we group the same variable across tasks
+#   for(fam in families){
+#     cat(fam,"\n")
+#     nr = nrow(X[X[,"Family"]==fam,]) ## how many instances for this family/task
+#     nc = colsPerTask ## we know in our formulation that all tasks share the same number of features
+#     rowstart=(i*nr)+1
+#     rowend = (i+1)*nr
+#     colstart = (i*nc)+1
+#     colend = (i+1)*nc
+#     cat(rowstart,"->",rowend,"\n")
+#     cat(colstart,"->",colend,"\n")
+#     Xgl[rowstart:rowend,colstart:(colend-1)]=as.matrix(X[X[,"Family"]==fam,-which(colnames(X) %in% c("Family","Label"))])
+#     Xgl[rowstart:rowend,colend]=matrix(1,nrow=length(rowstart:rowend),ncol=1) ## add intercept per task
+#     ## add label
+#     Xgl[rowstart:rowend,ncol(Xgl)] = as.matrix(X[X[,"Family"]==fam,"Label"])
+#     i=i+1
+#     
+#   }
+#   ret=list()
+#   ret[["X"]]=Xgl
+#   ret[["groups"]]=groups
+#   return(ret)
+# }
 
 GenerateNonLinearData=function(ntasks=5,d=50,ntrain=1000,ntest=300,seed=777){
   
@@ -117,11 +118,27 @@ GenerateNonLinearData=function(ntasks=5,d=50,ntrain=1000,ntest=300,seed=777){
   df["Family"]=groups  
   ret[["data"]]=df
   ret[["groups"]]=groups
+  # testidx = c()
+  # for(fam in unique(df[,"Family"])){
+  #   testidx = c(testidx, sample(which(df[,"Family"]==fam),ntest))
+  # }
+  
   testidx = c()
+  validx = c()
+  trainidx = c()
   for(fam in unique(df[,"Family"])){
-    testidx = c(testidx, sample(which(df[,"Family"]==fam),ntest))
+    
+    testidx = c(testidx, sample(which(df[,"Family"]==fam),floor(length(which(df[,"Family"]==fam))*0.4) ))
+    famtrain = setdiff(which(df[,"Family"]==fam),testidx)
+    famvalidx = sample(famtrain,0.1*length(famtrain) ) #val 10% of train
+    validx = c(validx,famvalidx)
+    famtrain = setdiff(famtrain,validx) # remove validation from train
+    trainidx = c(trainidx,famtrain)
   }
+  
   ret[["testidx"]]=testidx
+  ret[["trainidx"]]=trainidx
+  ret[["validx"]]=validx
   ret[["qs"]]=qs
   ret[["per"]]=per
   ret[["tq"]]=tq
@@ -179,10 +196,22 @@ GenerateNonLinearData2 = function(ntasks=5, d=5,ntrain=1000,ntest=300,seed=300){
   df["Label"]=Y
   df["Family"]=groups
   ## create test indexes
-  testidx = c()
+  # testidx = c()
+  # for(fam in unique(df[,"Family"])){
+  #   testidx = c(testidx, sample(which(df[,"Family"]==fam),ntest))
+  # }
+  
   for(fam in unique(df[,"Family"])){
-    testidx = c(testidx, sample(which(df[,"Family"]==fam),ntest))
+    
+    testidx = c(testidx, sample(which(df[,"Family"]==fam),floor(length(which(df[,"Family"]==fam))*0.4) ))
+    famtrain = setdiff(which(df[,"Family"]==fam),testidx)
+    famvalidx = sample(famtrain,0.1*length(famtrain) ) #val 10% of train
+    validx = c(validx,famvalidx)
+    famtrain = setdiff(famtrain,validx) # remove validation from train
+    trainidx = c(trainidx,famtrain)
   }
+
+    
   ret=list()
   ret[["data"]]=df
   ret[["groups"]]=groups
@@ -287,15 +316,18 @@ rate=0.1
 ridge.lambda=1  
 #data=GenerateData(d=d,ntrain=ntrain,ntest=ntest,seed=i)
 data=GenerateNonLinearData(d=d,ntasks=ntasks,ntrain=ntrain,ntest=ntest,seed=201)
-train = data$data[-data$testidx,]
+train = data$data[data$trainidx,]
 test = data$data[data$testidx,]
-mshared=TrainMultiTaskClassificationGradBoost(train,iter=iter,v=rate,groups=train[,"Family"],controls=controls,ridge.lambda=ridge.lambda)
+val = data$data[data$validx,]
+mshared=TrainMultiTaskClassificationGradBoost(train,iter=iter,v=rate,valdata=val,groups=train[,"Family"],controls=controls,ridge.lambda=ridge.lambda,target="binary")
 perTaskModels=list()
 logitModels=list()
 for(fam in unique(train[,"Family"])){
-  cat("wow**********************************\n")
+  
   tr = train[train[,"Family"]==fam,]
-  m0 = TrainMultiTaskClassificationGradBoost(tr,groups = matrix(fam,nrow=nrow(tr),ncol=1),iter=iter,v=rate,
+  tr.val = val[val[,"Family"]==fam,]
+  
+  m0 = TrainMultiTaskClassificationGradBoost(tr,valdata=val,groups = matrix(fam,nrow=nrow(tr),ncol=1),iter=iter,v=rate,
                                              controls=controls, ridge.lambda = ridge.lambda)  
   perTaskModels[[toString(fam)]]=m0
   logitModels[[toString(fam)]]= cv.glmnet(x=as.matrix(tr[,-which(colnames(tr) %in% c("Family","Label"))]),y=tr[,"Label"],family="binomial",alpha=1,maxit=10000,nfolds=4, thresh=1E-4)
@@ -303,8 +335,10 @@ for(fam in unique(train[,"Family"])){
 
 ### train binary model, ignoring multi tasking:
 binaryData = train
-binaryData["Family"]=1
-mbinary=TrainMultiTaskClassificationGradBoost(binaryData,iter=iter,v=rate,groups=matrix(1,nrow=nrow(binaryData),ncol=1),controls=controls,ridge.lambda=ridge.lambda)  
+binaryData["Family"]="1"
+binaryVal = val
+binaryVal["Family"]="1"
+mbinary=TrainMultiTaskClassificationGradBoost(binaryData,valdata=binaryVal,iter=iter,v=rate,groups=matrix(1,nrow=nrow(binaryData),ncol=1),controls=controls,ridge.lambda=ridge.lambda)  
 mlogitbinary = cv.glmnet(x=as.matrix(binaryData[,-which(colnames(tr) %in% c("Family","Label"))]),y=binaryData[,"Label"],family="binomial",alpha=1,maxit=10000,nfolds=4, thresh=1E-4)
 
 gplassotraindata = CreateGroupLassoDesignMatrix(train)

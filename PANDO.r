@@ -1,5 +1,5 @@
 source("helper.R")
-TrainMultiTaskClassificationGradBoost = function(df,valdata=NULL,earlystopping=100,iter=3,v=1,groups,controls,ridge.lambda,target="binary",treeType="rpart",fitTreeCoef=FALSE){
+TrainMultiTaskClassificationGradBoost = function(df,valdata=NULL,earlystopping=100,iter=3,v=1,groups,controls,ridge.lambda,target="binary",treeType="rpart",fitTreeCoef=FALSE,unbalanced=FALSE){
   scoreType = if(target == "binary") "auc" else "rmse"
   log=list()
   log[["tscore"]]=c()
@@ -38,7 +38,7 @@ TrainMultiTaskClassificationGradBoost = function(df,valdata=NULL,earlystopping=1
   bestScoreRound=1
   for(t in 2:iter){
     if((isval)&(t-bestScoreRound > earlystopping)){
-      cat("EARLY STOPPING AT ",t,"\n")
+      cat("EARLY STOPPING AT ",t," best iteration was ",bestScoreRound,"\n")
       break
     }
     ## for each new tree, we have a new leaf->coef per family
@@ -63,10 +63,13 @@ TrainMultiTaskClassificationGradBoost = function(df,valdata=NULL,earlystopping=1
     ### pseudo responses
     if(t%%20 == 0){
       cat("iteration ",t,"\n")
+      if(isval){
+        cat("valscore: ",vscore,"\n----------------\n")
+      }
     }
     
     #cat(head(yp,n=50),"-----------\n")
-    pr = negative_gradient(y=data$Label,preds=ypscore,target=target) ## as if y-yp but multiply each adition by v so it's y-v*yp
+    pr = negative_gradient(y=data$Label,preds=ypscore,target=target,unbalanced=unbalanced) ## as if y-yp but multiply each adition by v so it's y-v*yp
     
     ## create a tree for all families together, 1 vs 0
     if(treeType=="rpart"){

@@ -8,14 +8,13 @@ library(xtable)
 library(knitr)
 
 
-## http://www.jmlr.org/papers/volume8/xue07a/xue07a.pdf
-## families 1-15 are from highliy foliated regions
-## families 16-29 are from earth/desert regions
-schools2=read.csv("LandmineData.csv",stringsAsFactors = FALSE)
-schools2=schools2[,-1]
-schools2[schools2[,"Label"]==0,"Label"]=-1
-schools2=schools2[schools2[,"Family"] %in% paste0("fam",16:29),]
+schools2=read.csv("sentimenttfidf.csv",stringsAsFactors = FALSE) # with sparsity factor 0.9
+
+schools2[schools2[,"Label"] %in% c(1,2),"Label"]=-1
+schools2[schools2[,"Label"] %in% c(4,5),"Label"]=1
+schools2[,"Label"]=as.numeric(schools2[,"Label"])
 schools2=schools2[sample(nrow(schools2)),]
+
 
 
 
@@ -26,18 +25,13 @@ for(l in 1:NUM_TESTS){
   set.seed(l+10)
   testidx = c()
   validx = c()
+  trainidx = c()
   for(fam in unique(schools2[,"Family"])){
-    #testidx = c(testidx, sample(which(schools2[,"Family"]==fam),floor(length(which(schools2[,"Family"]==fam))*0.2) ))
-    testidx1 = sample(which( (schools2[,"Family"]==fam) & (schools2[,"Label"]==1) ),floor(length(which((schools2[,"Family"]==fam) & (schools2[,"Label"]==1)))*0.5) )
-    testidx2 = sample(which( (schools2[,"Family"]==fam) & (schools2[,"Label"]==-1) ),floor(length(which((schools2[,"Family"]==fam) & (schools2[,"Label"]==1)))*0.5) )
-    testidx=c(testidx,testidx1,testidx2)
     
-    famtrain1 = setdiff(which((schools2[,"Family"]==fam) & (schools2[,"Label"]==1)),c(testidx1,testidx2))
-    famtrain2 = setdiff(which((schools2[,"Family"]==fam) & (schools2[,"Label"]==-1)),c(testidx1,testidx2))    
-    famtrain = c(famtrain1,famtrain2)
-    famvalidx1 = sample(famtrain,ceiling(0.2*length(famtrain1)) ) #val 10% of train
-    famvalidx2 = sample(famtrain,ceiling(0.2*length(famtrain2)) ) #val 10% of train
-    validx = c(validx,famvalidx1,famvalidx2)
+    testidx = c(testidx, sample(which(schools2[,"Family"]==fam),floor(length(which(schools2[,"Family"]==fam))*0.8) ))
+    famtrain = setdiff(which(schools2[,"Family"]==fam),testidx)
+    famvalidx = sample(famtrain,0.1*length(famtrain) ) #val 10% of train
+    validx = c(validx,famvalidx)
     famtrain = setdiff(famtrain,validx) # remove validation from train
     trainidx = c(trainidx,famtrain)
   }
@@ -60,17 +54,17 @@ for(l in 1:NUM_TESTS){
   test = data$data[data$testidx,]
   val = data$data[data$validx,]
   cat("starting pando\n")
-  mshared=TrainMultiTaskClassificationGradBoost(train,iter=iter,v=rate,groups=train[,"Family"],controls=rpart.control(maxdepth = 3, cp=0.000001),ridge.lambda=ridge.lambda,target="binary",valdata=val,fitTreeCoef = FALSE, unbalanced=FALSE)
+  mshared=TrainMultiTaskClassificationGradBoost(train,iter=iter,v=rate,groups=train[,"Family"],controls=rpart.control(maxdepth = 6, cp=0.000001),ridge.lambda=ridge.lambda,target="binary",valdata=val,fitTreeCoef = FALSE)
   
   
   cat("starting pando2\n")
-  mshared2=TrainMultiTaskClassificationGradBoost2(train,iter=iter,v=rate,groups=train[,"Family"],controls=rpart.control(maxdepth = 3, cp=0.000001),ridge.lambda=ridge.lambda,target="binary",treeType="rpart",valdata=val,unbalanced=FALSE)
+  mshared2=TrainMultiTaskClassificationGradBoost2(train,iter=iter,v=rate,groups=train[,"Family"],controls=rpart.control(maxdepth = 6, cp=0.000001),ridge.lambda=ridge.lambda,target="binary",treeType="rpart",valdata=val)
   
-  cat("starting pando3\n")
-  mshared3=TrainMultiTaskClassificationGradBoost(train,iter=iter,v=rate,groups=train[,"Family"],controls=rpart.control(maxdepth = 3, cp=0.000001),ridge.lambda=ridge.lambda,target="binary",valdata=val,fitTreeCoef = TRUE)
+  #cat("starting pando3\n")
+  #mshared3=TrainMultiTaskClassificationGradBoost(train,iter=iter,v=rate,groups=train[,"Family"],controls=rpart.control(maxdepth = 4, cp=0.0001),ridge.lambda=ridge.lambda,target="binary",valdata=val,fitTreeCoef = TRUE)
   
-  cat("starting pando4\n")
-  mshared4=TrainMultiTaskClassificationGradBoost(train,iter=iter,v=rate,groups=train[,"Family"],controls=rpart.control(maxdepth = 3, cp=0.000001),ridge.lambda=2,target="binary",valdata=val,fitTreeCoef = FALSE)
+  #cat("starting pando4\n")
+  #mshared4=TrainMultiTaskClassificationGradBoost(train,iter=iter,v=rate,groups=train[,"Family"],controls=rpart.control(maxdepth = 4, cp=0.0001),ridge.lambda=2,target="binary",valdata=val,fitTreeCoef = FALSE)
   
   
   
@@ -87,7 +81,7 @@ for(l in 1:NUM_TESTS){
     tr = train[train[,"Family"]==fam,]
     tr.val = val[val[,"Family"]==fam,]
     m0 = TrainMultiTaskClassificationGradBoost(tr,valdata=tr.val,groups = matrix(fam,nrow=nrow(tr),ncol=1),iter=iter,v=0.01,
-                                               controls=rpart.control(maxdepth = 3,cp=0.000001), ridge.lambda = ridge.lambda,target="binary")  
+                                               controls=rpart.control(maxdepth = 4,cp=0.0001), ridge.lambda = ridge.lambda,target="binary")  
     perTaskModels[[toString(fam)]]=m0
     logitModels[[toString(fam)]]= cv.glmnet(x=as.matrix(tr[,-which(colnames(tr) %in% c("Family","Label"))]),y=tr[,"Label"],family="binomial",alpha=1,maxit=10000,nfolds=3, thresh=1E-4)
   }
@@ -97,7 +91,7 @@ for(l in 1:NUM_TESTS){
   binaryData["Family"]="1"
   binaryVal = val
   binaryVal["Family"]="1"
-  mbinary=TrainMultiTaskClassificationGradBoost(binaryData,iter=iter,v=rate,groups=matrix(1,nrow=nrow(binaryData),ncol=1),controls=rpart.control(maxdepth = 3, cp=0.000001),ridge.lambda=ridge.lambda,target="binary",valdata=binaryVal)  
+  mbinary=TrainMultiTaskClassificationGradBoost(binaryData,iter=iter,v=rate,groups=matrix(1,nrow=nrow(binaryData),ncol=1),controls=rpart.control(maxdepth = 6, cp=0.000001),ridge.lambda=ridge.lambda,target="binary",valdata=binaryVal)  
   mlogitbinary = cv.glmnet(x=as.matrix(binaryData[,-which(colnames(tr) %in% c("Family","Label"))]),y=binaryData[,"Label"],family="binomial",alpha=1,maxit=10000,nfolds=3, thresh=1E-4)
   
   gplassotraindata = CreateGroupLassoDesignMatrix(train)
@@ -219,7 +213,6 @@ for(l in 1:NUM_TESTS){
     #finalAUC[l,method]=score
   }
 }
-cat("ranking by average AUC across families:\n----------------------------------------\n")
 for(m in colnames(finalresults)){
   cat(m ,"mean:",mean(finalresults[,m]),"std:",sd(finalresults[,m]), "mean+std:",mean(finalresults[,m])-sd(finalresults[,m]),"\n")
 }
@@ -244,8 +237,8 @@ for(fam in unique(test[,"Family"])){
 #   AUC of roc1 AUC of roc2 
 # 0.9796171   0.9823319 
 
-roc.test(roc(as.factor(alltests[alltests[,"testnum"]==l,"Label"]),alltests[alltests[,"testnum"]==l,"BB"]),
-         roc(as.factor(alltests[alltests[,"testnum"]==l,"Label"]),alltests[alltests[,"testnum"]==l,"GL"]))
+roc.test(roc(as.factor(alltests[alltests[,"testnum"]==l,"Label"]),alltests[alltests[,"testnum"]==l,"GL"]),
+         roc(as.factor(alltests[alltests[,"testnum"]==l,"Label"]),alltests[alltests[,"testnum"]==l,"PANDO2"]))
 
 
 
@@ -256,3 +249,7 @@ roc.test(roc(as.factor(alltests[alltests[,"testnum"]==l,"Label"]),alltests[allte
 for(m in methods){
   cat(m," ",mean(compmat2[,m]),"\n")
 }
+
+
+
+

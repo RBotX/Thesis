@@ -1,6 +1,6 @@
 source("helper.R")
 
-TrainMultiTaskClassificationGradBoost2 = function(df,valdata=NULL,earlystopping=100,iter=3,v=1,groups,controls,ridge.lambda,target="binary",df.val=NULL,fitCoef="ls",treeType="rpart"){
+TrainMultiTaskClassificationGradBoost2 = function(df,valdata=NULL,earlystopping=100,iter=3,v=1,groups,controls,ridge.lambda,target="binary",df.val=NULL,fitCoef="ls",treeType="rpart",unbalanced=FALSE){
     
   scoreType = if(target == "binary") "auc" else "rmse"
   log=list()
@@ -39,7 +39,7 @@ TrainMultiTaskClassificationGradBoost2 = function(df,valdata=NULL,earlystopping=
   bestScoreRound=1
   for(t in 2:iter){
     if((isval)&(t-bestScoreRound > earlystopping)){
-      cat("EARLY STOPPING AT ",t,"\n")
+      cat("EARLY STOPPING AT ",t," best iteration was ",bestScoreRound,"\n")
       break
     }
     
@@ -59,10 +59,14 @@ TrainMultiTaskClassificationGradBoost2 = function(df,valdata=NULL,earlystopping=
     ### pseudo responses
     if(t%%20 == 0){
       cat("iteration ",t,"\n")
+      if(isval){
+        cat("valscore: ",vscore,"\n----------------\n")
+      }
+      
     }
     
     #cat(head(yp,n=50),"-----------\n")
-    pr = negative_gradient(y=data$Label,preds=ypscore,target=target) ## as if y-yp but multiply each adition by v so it's y-v*yp
+    pr = negative_gradient(y=data$Label,preds=ypscore,target=target,unbalanced=unbalanced) ## as if y-yp but multiply each adition by v so it's y-v*yp
     if(any(is.na(pr))){
       cat("pr is na2\n")
     }

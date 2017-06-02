@@ -84,15 +84,25 @@ negBinLogLikeLoss = function(preds,y){
 }
 ### return the negative gradient with respect to the loss function, 
 ### will be simply residuals for least squares
-negative_gradient = function(y,preds,groups=NULL,target="binary"){
+negative_gradient = function(y,preds,groups=NULL,target="binary",unbalanced=FALSE){
   #####
   ##
   if(target=="binary"){
     preds0 = 1-preds
     preds0[preds0<0.001]=0.001 ## not allow very small divisions
     preds[preds<0.001]=0.001 ## not allow very small divisions
-    ff = 0.5*log(preds/preds0)
-    ret = (2*y)/(1+exp(2*y*ff)) ## A gradient boosting machine, page 9
+    
+    if(unbalanced){
+      
+      Iplus = as.numeric(y==1)
+      nplus = sum(Iplus)
+      Iminus = as.numeric(y==-1)
+      nminus = sum(Iminus)
+      ret = preds*((Iplus/nplus) + (Iminus/nminus))
+    }else{
+      ff = 0.5*log(preds/preds0)
+      ret = (2*y)/(1+exp(2*y*ff)) ## A gradient boosting machine, page 9
+    }
     #####
     
   }else if(target=="regression"){
@@ -338,22 +348,28 @@ PerTaskImportances=function(perTaskModels){
 
 
 
-PlotImp  = function(df,signalVars=c(), title=""){
+PlotImp  = function(df,signalVars=c(), title="",flip=FALSE){
   
   df[,"value"]=df[,"value"]/sum(df[,"value"])
   colnames(df)=c("varname","value")
   #df=df[order(-df[,"value"]),]
   df <- base::transform(df, varname = reorder(varname, -value))
-  df[,"Legend"]="noise"
+  df[,"Legend"]="signal"
+  #df[df[,"varname"] %in% signalVars,"Legend"]="signal"
   df[df[,"varname"] %in% signalVars,"Legend"]="signal"
-  group.colors <- c(noise = "#C67171", signal = "#7171C6") 
+  #group.colors <- c(noise = "#C67171", signal = "#7171C6")
+  group.colors <- c(signal = "#7171C6") 
+  
   p3 = ggplot(head(df,n=40), aes(varname, weight = value,fill=Legend)) + geom_bar()
   p3 = p3+scale_fill_manual(values=group.colors)
   p3 = p3 + labs(title = title)
   p3 = p3+ylab("split gain")
   
   p3=p3#+thm
-  #p3=p3+coord_flip()
+  if(flip){
+    p3=p3+coord_flip()  
+  }
+  
   p3  
   
 }

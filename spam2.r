@@ -239,17 +239,17 @@ for(fam in unique(test[,"Family"])){
 # 0.9796171   0.9823319 
 
 roc.test(roc(as.factor(alltests[alltests[,"testnum"]==l,"Label"]),alltests[alltests[,"testnum"]==l,"BB"]),
-         roc(as.factor(alltests[alltests[,"testnum"]==l,"Label"]),alltests[alltests[,"testnum"]==l,"PANDO4"]))
+         roc(as.factor(alltests[alltests[,"testnum"]==l,"Label"]),alltests[alltests[,"testnum"]==l,"PANDO2"]))
 
 
 
-
-
-save.image()
-
+#save.image(compress=TRUE)
 
 
 
+for(m in methods){
+  cat(m," ",mean(compmat2[,m]),"\n")
+}
 
 
 
