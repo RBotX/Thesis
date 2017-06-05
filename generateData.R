@@ -1,4 +1,6 @@
-source("MultiTaskGradBoost.R")
+source("PANDO.r")
+source("PANDO2.r")
+source("helper.R")
 library(MASS)
 library(grpreg)
 library(xtable)
@@ -11,9 +13,10 @@ boolfunc = function(x){
   
 
   i=x[length(x)]
-  #ret = (xor(x[1],x[6])|xor(x[2],x[7])|xor(x[3],x[8])|xor(x[4],x[9])|xor(x[5],x[11])) & (xor(x[10],x[i]))
-  ret = (xor(x[1],x[6])|xor(x[2],x[7])|xor(x[3],x[8]))&(xor(x[4],x[9])|xor(x[5],x[11]) | xor(x[10],x[i]))
-  #ret = (xor(x[1],x[6])|xor(x[2],x[7])|xor(x[3],x[8])|xor(x[4],x[9])|xor(x[5],x[10])) & (x[10]&x[i])
+  
+  #ret = (xor(x[1],x[6])|xor(x[2],x[7])|xor(x[3],x[8]))&(xor(x[4],x[9])|xor(x[5],x[11]) | xor(x[10],x[i]))
+  ret = (xor(x[1],x[6])|xor(x[2],x[7])|xor(x[3],x[i]))&(xor(x[4],x[9])|xor(x[5],x[11]) | xor(x[10],x[i]))
+  
 
   
   #return(ret)
@@ -74,7 +77,7 @@ GenerateNonLinearData=function(ntasks=5,d=50,ntrain=1000,ntest=300,seed=777){
   
   qs = runif(d,0.1,0.4) ## probability for each flag to be on
   #qs[c(1,2,3,4,5)]=runif(5,0.4,0.6)
-  qs[c(1,2,3,4,5)]=runif(5,0.4,0.6)
+  qs[c(1,2,3,4,5)]=runif(5,0.3,0.7)
   allmatrix=c()
   groups=c()
   
@@ -86,7 +89,8 @@ GenerateNonLinearData=function(ntasks=5,d=50,ntrain=1000,ntest=300,seed=777){
     ### generate a sample of n=ntrain+ntest samples, each of dimension d
     ##generate a boolean vector using binomial distribution
     ## build the matrix for this task colum wise, we generate each column independently
-    per = rnorm(n=d,mean=0,sd=0.07) ## perturbation per task, intuitively: the more we perturb, the less "in common" the tasks have
+    #per = rnorm(n=d,mean=0,sd=0.07) ## perturbation per task, intuitively: the more we perturb, the less "in common" the tasks have
+    per = rnorm(n=d,mean=0,sd=0.0) ## perturbation per task, intuitively: the more we perturb, the less "in common" the tasks have
     tq=qs+per ## perturb probabilities for this task
     minval = min(tq[tq>0])
     maxval=max(tq[tq<1])
@@ -128,7 +132,7 @@ GenerateNonLinearData=function(ntasks=5,d=50,ntrain=1000,ntest=300,seed=777){
   trainidx = c()
   for(fam in unique(df[,"Family"])){
     
-    testidx = c(testidx, sample(which(df[,"Family"]==fam),floor(length(which(df[,"Family"]==fam))*0.4) ))
+    testidx = c(testidx, sample(which(df[,"Family"]==fam),ntest ))
     famtrain = setdiff(which(df[,"Family"]==fam),testidx)
     famvalidx = sample(famtrain,0.1*length(famtrain) ) #val 10% of train
     validx = c(validx,famvalidx)
@@ -305,14 +309,14 @@ GenerateLinearData = function(ntasks=5, d=50,ntrain=1000,ntest=300,seed=300){
 
 ####### NON LINEAR ######
 
-d=60
+d=150
 ntasks=5
 ntest=10000
 ntrain=1000
 #controls=c(maxdepth=2,minbucket=1)
 controls=rpart.control()
-iter=150
-rate=0.1
+iter=1000
+rate=0.01
 ridge.lambda=1  
 #data=GenerateData(d=d,ntrain=ntrain,ntest=ntest,seed=i)
 data=GenerateNonLinearData(d=d,ntasks=ntasks,ntrain=ntrain,ntest=ntest,seed=201)
@@ -346,7 +350,7 @@ gplassoX = (gplassotraindata$X)[,-ncol(gplassotraindata$X)]
 gplassoy =  (gplassotraindata$X)[,ncol(gplassotraindata$X)]
 gplassoy[gplassoy==-1]=0
 
-mgplasso = cv.grpreg(gplassoX, gplassoy, group=gplassotraindata$groups, nfolds=5, seed=777,family="binomial",trace=TRUE)
+mgplasso = cv.grpreg(gplassoX, gplassoy, group=gplassotraindata$groups, nfolds=2, seed=777,family="binomial",trace=TRUE)
 
 gplassotestdata = CreateGroupLassoDesignMatrix(test)
 gplassotestX = (gplassotestdata$X)[,-ncol(gplassotestdata$X)]
@@ -367,11 +371,18 @@ for(fam in unique(test[,"Family"])){
   #tr.test = test[test[,"Family"] %in% c(fam,"clean"),-which(colnames(test)=="Family")]
   tr.test = test[test["Family"]==fam,]
   tr.test = tr.test[,-which(colnames(tr.test)=="Family")]
-  tt[[methods[1]]]=predict.Boost(tr.test[,-which(colnames(tr.test) %in% c("Family","Label"))],mshared[[toString(fam)]],rate=rate)
+  
+  bestIt=min(which(as.vector(mshared$log$vscore)==max(as.vector(mshared$log$vscore))))
+  tt[[methods[1]]]=predict(mshared[[toString(fam)]],tr.test[,-which(colnames(tr.test) %in% c("Family","Label"))],bestIt=bestIt)
   rc[[methods[1]]] = pROC::roc(as.factor(tr.test[,"Label"]),tt[[methods[1]]])
-  tt[[methods[2]]]=predict.Boost(tr.test[,-which(colnames(tr.test) %in% c("Family","Label"))],perTaskModels[[toString(fam)]][[toString(fam)]],rate=rate)
+  
+  bestIt=min(which(as.vector(perTaskModels[[toString(fam)]]$log$vscore)==max(as.vector(perTaskModels[[toString(fam)]]$log$vscore))))    
+  tt[[methods[2]]]=predict(perTaskModels[[toString(fam)]][[toString(fam)]],tr.test[,-which(colnames(tr.test) %in% c("Family","Label"))],bestIt=bestIt)
   rc[[methods[2]]] = pROC::roc(as.factor(tr.test[,"Label"]),tt[[methods[2]]])
-  tt[[methods[3]]] = predict.Boost(tr.test[,-which(colnames(tr.test) %in% c("Family","Label"))],mbinary[[toString(1)]],rate=rate)
+  
+  bestIt=min(which(as.vector(mbinary$log$vscore)==max(as.vector(mbinary$log$vscore))))    
+  tt[[methods[3]]] = predict(mbinary[[toString(1)]],tr.test[,-which(colnames(tr.test) %in% c("Family","Label"))],bestIt=bestIt)
+  
   rc[[methods[3]]] = pROC::roc(as.factor(tr.test[,"Label"]),tt[[methods[3]]])
   tt[[methods[4]]] =predict(logitModels[[fam]],newx=as.matrix(tr.test[,-which(colnames(tr) %in% c("Family","Label"))]),type="response",s=logitModels[[fam]]$lambda.min)
   rc[[methods[4]]] = pROC::roc(as.factor(tr.test[,"Label"]),as.numeric(tt[[methods[4]]]))
@@ -395,14 +406,6 @@ for(fam in unique(test[,"Family"])){
   }
   compmat = rbind(compmat,compmatrix)
   
-#  cat("AUROC for ",fam," PANDO VS per-task boosted trees is: ",pROC::auc(rc1)[1]," ",pROC::auc(rc2)[1],"diff p-val:",signif(pROC::roc.test(rc1,rc2)$p.value, digits = 3),"\n")
-#  cat("AUROC for ",fam," PANDO VS BinaryBoosting boosted trees is: ",pROC::auc(rc1)[1]," ",pROC::auc(rc3)[1],"diff p-val:",signif(pROC::roc.test(rc1,rc3)$p.value, digits = 3),"\n")
-#  cat("AUROC for ",fam," PANDO VS Per Task logistic regression is: ",pROC::auc(rc1)[1]," ",pROC::auc(rc4)[1],"diff p-val:",signif(pROC::roc.test(rc1,rc4)$p.value, digits = 3),"\n")
-#  cat("AUROC for ",fam," PANDO VS Binary Logistic Regression is: ",pROC::auc(rc1)[1]," ",pROC::auc(rc5)[1],"diff p-val:",signif(pROC::roc.test(rc1,rc5)$p.value, digits = 3),"\n")
-#  cat("AUROC for ",fam," PerTaskBoosting VS BinaryBoosting: ",pROC::auc(rc2)[1]," ",pROC::auc(rc3)[1],"diff p-val:",signif(pROC::roc.test(rc2,rc3)$p.value, digits = 3),"\n")
-#  cat("AUROC for ",fam," PerTaskBoosting VS PTLogit: ",pROC::auc(rc2)[1]," ",pROC::auc(rc4)[1],"diff p-val:",signif(pROC::roc.test(rc2,rc4)$p.value, digits = 3),"\n")
-#  cat("AUROC for ",fam," PANDO VS gplasso: ",pROC::auc(rc1)[1]," ",pROC::auc(rc6)[1],"diff p-val:",signif(pROC::roc.test(rc1,rc6)$p.value, digits = 3),"\n")
-#  cat("AUROC for ",fam," Per Task logistic regression VS gplasso: ",pROC::auc(rc4)[1]," ",pROC::auc(rc6)[1],"diff p-val:",signif(pROC::roc.test(rc4,rc6)$p.value, digits = 3),"\n")
   cat("***********\n")
   
   
