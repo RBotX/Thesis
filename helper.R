@@ -212,8 +212,12 @@ predict.BoostingModel = function(m,X,calibrate=TRUE,bestIt=NULL){
   if(is.null(bestIt)){
     bestIt=length(m$modelList)
   }
+  
   for(i in 2:bestIt){
-    mm = m$modelList[[i]]  # extract i-th model
+    if(i > length( m$modelList)){
+      cat("model is length ", length(m$modelList)," i is ", i,"\n")
+    }
+    mm = m$modelList[[i]]  # extract i-th tree
     newpred=predict(modelObject=mm,newdata=X)
     pred = pred+(rate*newpred)
     #pred = pred+newpred

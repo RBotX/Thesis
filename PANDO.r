@@ -21,7 +21,8 @@ TrainMultiTaskClassificationGradBoost = function(df,valdata=NULL,earlystopping=1
   if(isval){
     ypval = rep(preds,nrow(valdata)) ## initial guess without learning rate?
     ypvalscore= ypval
-    bestVscore=ypvalscore
+    #bestVscore=ypvalscore
+    bestVscore=scorefunc(label=valdata$Label,preds=ypvalscore,scoreType=scoreType)
     
     
   }
@@ -45,7 +46,6 @@ TrainMultiTaskClassificationGradBoost = function(df,valdata=NULL,earlystopping=1
     for(fam in families){
       leavesToCoefs = list()
       leavesToCoefs[[toString(fam)]]=list() 
-    }
     
     tscore = scorefunc(label=data$Label,preds=yp,scoreType=scoreType)
     log[["tscore"]]=c(log[["tscore"]],tscore)

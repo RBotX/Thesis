@@ -27,42 +27,6 @@ boolfunc = function(x){
   }
 }
 
-# ## X has a "family" column
-# ## we need to also add an intercept to each problem, as the grplaso package requests that in the design matrix
-# ##
-# CreateGroupLassoDesignMatrix = function(X){
-#   
-#   families = unique(X[,"Family"])
-#   ntasks=length(families)
-#   colsPerTask = (ncol(X)-2) # removing label and family columns
-#   colsPerTask = colsPerTask+1 # adding intercept column per each task (two different rows of code just for readibility)
-#   Xgl = matrix(0,nrow=nrow(X),ncol=(colsPerTask*ntasks)+1) # the +1 is for the label
-#   cat(nrow(Xgl),"XGL",ncol(Xgl),"\n")
-#   i=0
-#   cat("ncol of xgl is:",ncol(Xgl),"\n")
-#   groups=rep(1:colsPerTask,ntasks) # which group each variable belongs to. in our case, we group the same variable across tasks
-#   for(fam in families){
-#     cat(fam,"\n")
-#     nr = nrow(X[X[,"Family"]==fam,]) ## how many instances for this family/task
-#     nc = colsPerTask ## we know in our formulation that all tasks share the same number of features
-#     rowstart=(i*nr)+1
-#     rowend = (i+1)*nr
-#     colstart = (i*nc)+1
-#     colend = (i+1)*nc
-#     cat(rowstart,"->",rowend,"\n")
-#     cat(colstart,"->",colend,"\n")
-#     Xgl[rowstart:rowend,colstart:(colend-1)]=as.matrix(X[X[,"Family"]==fam,-which(colnames(X) %in% c("Family","Label"))])
-#     Xgl[rowstart:rowend,colend]=matrix(1,nrow=length(rowstart:rowend),ncol=1) ## add intercept per task
-#     ## add label
-#     Xgl[rowstart:rowend,ncol(Xgl)] = as.matrix(X[X[,"Family"]==fam,"Label"])
-#     i=i+1
-#     
-#   }
-#   ret=list()
-#   ret[["X"]]=Xgl
-#   ret[["groups"]]=groups
-#   return(ret)
-# }
 
 GenerateNonLinearData=function(ntasks=5,d=50,ntrain=1000,ntest=300,seed=777){
   
@@ -77,20 +41,21 @@ GenerateNonLinearData=function(ntasks=5,d=50,ntrain=1000,ntest=300,seed=777){
   
   qs = runif(d,0.1,0.4) ## probability for each flag to be on
   #qs[c(1,2,3,4,5)]=runif(5,0.4,0.6)
-  qs[c(1,2,3,4,5)]=runif(5,0.3,0.7)
+  #qs[1:ntasks]=runif(ntasks,0.3,0.7)
+  qs[1:ntasks]=runif(ntasks,0.4,0.7)
   allmatrix=c()
   groups=c()
   
   ## make sure we stay within (0,1)
   
   #tq=c(0.03741054 ,0.85404431 ,0.46901895 ,0.23391561 ,0.10628011 ,0.57462687 ,0.45676139, 0.20296465, 0.13046421, 0.31055056)
-  flagsmatrix=matrix(nrow=5,ncol=d)
+  flagsmatrix=matrix(nrow=ntasks,ncol=d)
   for(t in 1:ntasks){
     ### generate a sample of n=ntrain+ntest samples, each of dimension d
     ##generate a boolean vector using binomial distribution
     ## build the matrix for this task colum wise, we generate each column independently
     #per = rnorm(n=d,mean=0,sd=0.07) ## perturbation per task, intuitively: the more we perturb, the less "in common" the tasks have
-    per = rnorm(n=d,mean=0,sd=0.0) ## perturbation per task, intuitively: the more we perturb, the less "in common" the tasks have
+    per = rnorm(n=d,mean=0,sd=0.07) ## perturbation per task, intuitively: the more we perturb, the less "in common" the tasks have
     tq=qs+per ## perturb probabilities for this task
     minval = min(tq[tq>0])
     maxval=max(tq[tq<1])
@@ -151,79 +116,6 @@ GenerateNonLinearData=function(ntasks=5,d=50,ntrain=1000,ntest=300,seed=777){
   return(ret)    
 }
 
-
-
-
-
-GenerateNonLinearData2 = function(ntasks=5, d=5,ntrain=1000,ntest=300,seed=300){
-  #ntasks=5 ### we generate a row for each task, so for each task we have a set of parameter weights
-  #d=15 ### how many dimensions we have. we have 5 dimensions with actual value, and 5 which will be noise
-  #n=100 #samples per task
-  n=ntrain+ntest
-  set.seed(seed)
-  mu=rep(0,7)
-  Sigma=diag(c(0.5, 0.25, 0.1, 0.05, 0.15, 0.1, 0.15))
-  
-  W = mvrnorm(ntasks,mu,Sigma)  ### this generate a 5x5 matrix, a row of coefficients per task
-  
-  colnames(W)=NULL
-  #zz = matrix(0,ntasks,d-5)
-  #W = cbind(W,zz)
-  
-  
-  ## each row of W is the "controller" (Wt) of each task
-  
-  ## now generate the random data X ~ uniform(0,1)^d
-  
-  M = c()
-  Y = c()
-  groups = c()
-  for(i in 1:ntasks){
-    X = matrix(runif(n*d),nrow=n,ncol=d)
-    #offsets = c(1,1,1,1,1)
-    #w = t(W)[,i] + c(offsets,rep(0,d-5))
-    w = t(W)[,i]
-    
-    y = t(apply(X,1,function(x){c(x[1]^2,x[4]^2,x[1]*x[2],x[3]*x[5],x[2],x[4],1)})) %*% w  #f transform each row of X non linearly
-    y = y + rnorm(n=length(y),mean=0,sd=0.0)
-    class1idx=which(y>median(y))
-    class0idx=which(y<=median(y))
-    y[class1idx]=1
-    y[class0idx]=-1
-    M = rbind(M,X)
-    Y = rbind(Y,y)
-    groups = rbind(groups,matrix(paste0("fam",i),nrow=length(y),ncol=1))
-  }
-  ### clean = less than median
-  ### mal = more than median
-  df=data.frame(M)
-  df["Label"]=Y
-  df["Family"]=groups
-  ## create test indexes
-  # testidx = c()
-  # for(fam in unique(df[,"Family"])){
-  #   testidx = c(testidx, sample(which(df[,"Family"]==fam),ntest))
-  # }
-  
-  for(fam in unique(df[,"Family"])){
-    
-    testidx = c(testidx, sample(which(df[,"Family"]==fam),floor(length(which(df[,"Family"]==fam))*0.4) ))
-    famtrain = setdiff(which(df[,"Family"]==fam),testidx)
-    famvalidx = sample(famtrain,0.1*length(famtrain) ) #val 10% of train
-    validx = c(validx,famvalidx)
-    famtrain = setdiff(famtrain,validx) # remove validation from train
-    trainidx = c(trainidx,famtrain)
-  }
-
-    
-  ret=list()
-  ret[["data"]]=df
-  ret[["groups"]]=groups
-  ret[["W"]]=W
-  ret[["testidx"]]=testidx
-  
-  return(ret)
-}
 
 
 
@@ -324,6 +216,7 @@ train = data$data[data$trainidx,]
 test = data$data[data$testidx,]
 val = data$data[data$validx,]
 mshared=TrainMultiTaskClassificationGradBoost(train,iter=iter,v=rate,valdata=val,groups=train[,"Family"],controls=controls,ridge.lambda=ridge.lambda,target="binary")
+mshared2=TrainMultiTaskClassificationGradBoost2(train,iter=iter,v=rate,groups=train[,"Family"],controls=controls,ridge.lambda=ridge.lambda,target="binary",treeType="rpart",valdata=val)
 perTaskModels=list()
 logitModels=list()
 for(fam in unique(train[,"Family"])){
@@ -332,7 +225,7 @@ for(fam in unique(train[,"Family"])){
   tr.val = val[val[,"Family"]==fam,]
   
   m0 = TrainMultiTaskClassificationGradBoost(tr,valdata=val,groups = matrix(fam,nrow=nrow(tr),ncol=1),iter=iter,v=rate,
-                                             controls=controls, ridge.lambda = ridge.lambda)  
+                                             controls=controls, ridge.lambda = ridge.lambda,target="binary")  
   perTaskModels[[toString(fam)]]=m0
   logitModels[[toString(fam)]]= cv.glmnet(x=as.matrix(tr[,-which(colnames(tr) %in% c("Family","Label"))]),y=tr[,"Label"],family="binomial",alpha=1,maxit=10000,nfolds=4, thresh=1E-4)
 }
@@ -357,7 +250,8 @@ gplassotestX = (gplassotestdata$X)[,-ncol(gplassotestdata$X)]
 gplassotesty =  (gplassotestdata$X)[,ncol(gplassotestdata$X)]
 
 gplassoPreds = predict(mgplasso,gplassotestX,type="response",lambda=mgplasso$lambda.min)   
-methods = c("PANDO","PTB","BB","PTLogit","BinaryLogit","GL")
+
+methods = c("PANDO","PANDO2","PTB","BB","PTLogit","BinaryLogit","GL")
 rc=list()
 tt=list()
 compmat = c()
@@ -366,6 +260,7 @@ xtables=list()
 k=0
 ##################### test:
 for(fam in unique(test[,"Family"])){
+  
   k = k+1
   compmatrix = matrix(nrow=length(methods),ncol = length(methods))
   #tr.test = test[test[,"Family"] %in% c(fam,"clean"),-which(colnames(test)=="Family")]
@@ -373,29 +268,40 @@ for(fam in unique(test[,"Family"])){
   tr.test = tr.test[,-which(colnames(tr.test)=="Family")]
   
   bestIt=min(which(as.vector(mshared$log$vscore)==max(as.vector(mshared$log$vscore))))
-  tt[[methods[1]]]=predict(mshared[[toString(fam)]],tr.test[,-which(colnames(tr.test) %in% c("Family","Label"))],bestIt=bestIt)
-  rc[[methods[1]]] = pROC::roc(as.factor(tr.test[,"Label"]),tt[[methods[1]]])
+  cat("pando1\n")
+  tt[[methods[which(methods=="PANDO")]]]=predict(mshared[[toString(fam)]],tr.test[,-which(colnames(tr.test) %in% c("Family","Label"))],calibrate=TRUE,bestIt=bestIt)
+  rc[[methods[which(methods=="PANDO")]]] = pROC::roc(as.factor(tr.test[,"Label"]),as.numeric(tt[[methods[which(methods=="PANDO")]]]))
   
+  cat("pando2\n")
+  bestIt=min(which(as.vector(mshared2$log$vscore)==max(as.vector(mshared2$log$vscore))))    
+  tt[[methods[which(methods=="PANDO2")]]] = predict(mshared2[[toString(fam)]],tr.test[,-which(colnames(tr.test) %in% c("Family","Label"))],calibrate=TRUE,bestIt=bestIt)
+  rc[[methods[which(methods=="PANDO2")]]] = pROC::roc(as.factor(tr.test[,"Label"]),as.numeric(tt[[methods[which(methods=="PANDO2")]]]))
+  
+  cat("ptb\n")
   bestIt=min(which(as.vector(perTaskModels[[toString(fam)]]$log$vscore)==max(as.vector(perTaskModels[[toString(fam)]]$log$vscore))))    
-  tt[[methods[2]]]=predict(perTaskModels[[toString(fam)]][[toString(fam)]],tr.test[,-which(colnames(tr.test) %in% c("Family","Label"))],bestIt=bestIt)
-  rc[[methods[2]]] = pROC::roc(as.factor(tr.test[,"Label"]),tt[[methods[2]]])
+  tt[[methods[which(methods=="PTB")]]]=predict(perTaskModels[[toString(fam)]][[toString(fam)]],tr.test[,-which(colnames(tr.test) %in% c("Family","Label"))],calibrate=TRUE,bestIt=bestIt)
+  rc[[methods[which(methods=="PTB")]]] = pROC::roc(as.factor(tr.test[,"Label"]),as.numeric(tt[[methods[which(methods=="PTB")]]]))
   
+  cat("bb\n")
   bestIt=min(which(as.vector(mbinary$log$vscore)==max(as.vector(mbinary$log$vscore))))    
-  tt[[methods[3]]] = predict(mbinary[[toString(1)]],tr.test[,-which(colnames(tr.test) %in% c("Family","Label"))],bestIt=bestIt)
+  tt[[methods[which(methods=="BB")]]] = predict(mbinary[[toString(1)]],tr.test[,-which(colnames(tr.test) %in% c("Family","Label"))],calibrate=TRUE,bestIt=bestIt)
+  rc[[methods[which(methods=="BB")]]] = pROC::roc(as.factor(tr.test[,"Label"]),as.numeric(tt[[methods[which(methods=="BB")]]]))
   
-  rc[[methods[3]]] = pROC::roc(as.factor(tr.test[,"Label"]),tt[[methods[3]]])
-  tt[[methods[4]]] =predict(logitModels[[fam]],newx=as.matrix(tr.test[,-which(colnames(tr) %in% c("Family","Label"))]),type="response",s=logitModels[[fam]]$lambda.min)
-  rc[[methods[4]]] = pROC::roc(as.factor(tr.test[,"Label"]),as.numeric(tt[[methods[4]]]))
-  tt[[methods[5]]] =predict(mlogitbinary,newx=as.matrix(tr.test[,-which(colnames(tr) %in% c("Family","Label"))]),type="response",s=mlogitbinary$lambda.min)
-  rc[[methods[5]]] = pROC::roc(as.factor(tr.test[,"Label"]),as.numeric(tt[[methods[5]]]))
-  tt[[methods[6]]] = gplassoPreds[test[,"Family"]==fam]
-  rc[[methods[6]]] = pROC::roc(as.factor(tr.test[,"Label"]),as.numeric(tt[[methods[6]]]))
+  tt[[methods[which(methods=="PTLogit")]]] =predict(logitModels[[fam]],newx=as.matrix(tr.test[,-which(colnames(tr) %in% c("Family","Label"))]),type="response",s=logitModels[[fam]]$lambda.min)
+  rc[[methods[which(methods=="PTLogit")]]] = pROC::roc(as.factor(tr.test[,"Label"]),as.numeric(tt[[methods[which(methods=="PTLogit")]]]))
   
-  for(i in 1:6){
+  tt[[methods[which(methods=="BinaryLogit")]]] =predict(mlogitbinary,newx=as.matrix(tr.test[,-which(colnames(tr) %in% c("Family","Label"))]),type="response",s=mlogitbinary$lambda.min)
+  rc[[methods[which(methods=="BinaryLogit")]]] = pROC::roc(as.factor(tr.test[,"Label"]),as.numeric(tt[[methods[which(methods=="BinaryLogit")]]]))
+  tt[[methods[which(methods=="GL")]]] = gplassoPreds[test[,"Family"]==fam]
+  rc[[methods[which(methods=="GL")]]] = pROC::roc(as.factor(tr.test[,"Label"]),as.numeric(tt[[methods[which(methods=="GL")]]]))
+  
+  
+  
+  for(i in 1:length(methods)){
     #cat("storing ",round(pROC::auc(rc[[methods[i]]])[1],4)," in ",i,i,"\n" )
     compmatrix[i,i]=round(pROC::auc(rc[[methods[i]]])[1],4) # store auc of this method
     digitsfmt[i,i]=3
-    for(j in 1:6){
+    for(j in 1:length(methods)){
       if(i >=j ){
         next
       }
@@ -540,64 +446,30 @@ for(fam in unique(test[,"Family"])){
 
 
 
-plotImp2 = function(df,signalVars=c(), title){
+plotImp2 = function(df,signalVars=c(), title="some title", normalize = FALSE){
   
   df[,"value"]=df[,"value"]/sum(df[,"value"])
   colnames(df)=c("varname","value")
   #df=df[order(-df[,"value"]),]
   df <- base::transform(df, varname = reorder(varname, -value))
   df[,"Legend"]="noise"
-  df[df[,"varname"] %in% signalVars,"Legend"]="signal"
+  df[df[,"varname"] %in% c(paste0("X",signalVars)),"Legend"]="signal"
   group.colors <- c(noise = "#C67171", signal = "#7171C6") 
-  p3 = ggplot(head(df,n=40), aes(varname, weight = value,fill=Legend)) + geom_bar()
+  p3 = ggplot(head(df,n=60), aes(varname, weight = value,fill=Legend)) + geom_bar()
   p3 = p3+scale_fill_manual(values=group.colors)
   p3 = p3 + labs(title = title)
   p3 = p3+ylab("split gain")
   
-  p3=p3+thm
+  #p3=p3+thm
   #p3=p3+coord_flip()
   p3  
   
 }
 
 
-dff <- melt(ldply(imp1, data.frame))
-dff=dff[,-2]
-colnames(dff)=c("varname","value")
-dff=dff[order(-dff[,"value"]),]
-dffnorm=dff
-dffnorm[,"value"]=dffnorm[,"value"]/sum(dffnorm[,"value"])
-colnames(dffnorm)=c("varname","value")
-#dffnorm=dffnorm[order(-dffnorm[,"value"]),]
-dffnorm <- base::transform(dffnorm, varname = reorder(varname, -value))
-#plotImp(dffnorm,paste0("X",1:5),"cumm. variable importance across tasks - PANDO")
-plotImp(dffnorm,paste0("X",1:11),"cumm. variable importance across tasks - PANDO")
 
 
-dff2 <- melt(ldply(imp2, data.frame))
-dff2=dff2[,-2]
-colnames(dff2)=c("varname","value")
-dff2=dff2[order(-dff2[,"value"]),]
-dff2norm=dff2
-dff2norm[,"value"]=dff2norm[,"value"]/sum(dff2norm[,"value"])
-colnames(dff2norm)=c("varname","value")
-#dff2norm=dff2norm[order(-dff2norm[,"value"]),]
-dff2norm <- base::transform(dff2norm, varname = reorder(varname, -value))
-#plotImp(dff2norm,paste0("X",1:5),"cumm. variable importance across tasks - PTB")
-plotImp(dff2norm,paste0("X",1:11),"cumm. variable importance across tasks - PTB")
 
-
-dff3 <- melt(ldply(imp3, data.frame))
-dff3=dff3[,-2]
-colnames(dff3)=c("varname","value")
-dff3=dff3[order(-dff3[,"value"]),]
-dff3norm=dff3
-dff3norm[,"value"]=dff3norm[,"value"]/sum(dff3norm[,"value"])
-colnames(dff3norm)=c("varname","value")
-#dff3norm=dff3norm[order(-dff3norm[,"value"]),]
-dff3norm <- base::transform(dff3norm, varname = reorder(varname, -value))
-#plotImp(dff3norm,paste0("X",1:5),"cumm. variable importance across tasks - BinaryBoosting")
-plotImp(dff3norm,paste0("X",1:11),"cumm. variable importance across tasks - BinaryBoosting")
 
 
 
@@ -609,7 +481,7 @@ colnames(dffnorm)=c("varname","value")
 #dffnorm=dffnorm[order(-dffnorm[,"value"]),]
 dffnorm <- base::transform(dffnorm, varname = reorder(varname, -value))
 dffnorm[,"Legend"]="noise"
-dffnorm[dffnorm[,"varname"] %in% c(paste0("X",1:5)),"Legend"]="signal"
+dffnorm[dffnorm[,"varname"] %in% c(paste0("X",1:11)),"Legend"]="signal"
 group.colors <- c(noise = "#C67171", signal = "#7171C6") 
 p3 = ggplot(head(dffnorm,n=20), aes(varname, weight = value,fill=Legend)) + geom_bar()
 p3 = p3+scale_fill_manual(values=group.colors)
@@ -618,7 +490,8 @@ p3 = p3+ylab("split gain")
 
 p3=p3+thm
 p3
-rpart.plot(mshared$fam1[[2]]$treeFit)  ## displaying a tree by mshared
+#rpart.plot(mshared$fam1[["2"]]$treeFit)  ## displaying a tree by mshared
+#rpart.plot(mshared$fam1[["2"]]$treeFit)  ## displaying a tree by mshared
 
 ### normalized versions:
 
@@ -628,9 +501,10 @@ colnames(dff2norm)=c("varname","value")
 #dff2norm=dff2norm[order(-dff2norm[,"value"]),]
 dff2norm <- base::transform(dff2norm, varname = reorder(varname, -value))
 dff2norm[,"Legend"]="noise"
-dff2norm[dff2norm[,"varname"] %in% c(paste0("X",1:5)),"Legend"]="signal"
+dff2norm[dff2norm[,"varname"] %in% c(paste0("X",1:11)),"Legend"]="signal"
 group.colors <- c(noise = "#C67171", signal = "#7171C6") 
-p4 = ggplot(head(dff2norm,n=20), aes(varname, weight = value,fill=Legend)) + geom_bar()
+#p4 = ggplot(head(dff2norm,n=1000), aes(varname, weight = value,fill=Legend)) + geom_bar()
+p4 = ggplot(dff2norm[dff2norm[,"value"]>0.0011], aes(varname, weight = value,fill=Legend)) + geom_bar()
 p4 = p4+scale_fill_manual(values=group.colors)
 p4 = p4 + labs(title = paste("cumm. normalized variable importance across tasks - PTB"))
 p4 = p4+ylab("split gain")

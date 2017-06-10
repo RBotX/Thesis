@@ -23,7 +23,8 @@ TrainMultiTaskClassificationGradBoost2 = function(df,valdata=NULL,earlystopping=
     
     ypval = rep(preds,nrow(valdata)) ## initial guess without learning rate?
     ypvalscore= ypval
-    bestVscore=ypvalscore
+    #bestVscore=ypvalscore
+    bestVscore=scorefunc(label=valdata$Label,preds=ypvalscore,scoreType=scoreType)
     
     
   }
