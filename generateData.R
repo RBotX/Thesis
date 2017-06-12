@@ -187,14 +187,26 @@ GenerateLinearData = function(ntasks=5, d=50,ntrain=1000,ntest=300,seed=300){
   df["Family"]=groups
   ## create test indexes
   testidx = c()
+  validx = c()
+  trainidx = c()
   for(fam in unique(df[,"Family"])){
-    testidx = c(testidx, sample(which(df[,"Family"]==fam),ntest))
+    
+    testidx = c(testidx, sample(which(df[,"Family"]==fam),ntest ))
+    famtrain = setdiff(which(df[,"Family"]==fam),testidx)
+    famvalidx = sample(famtrain,0.1*length(famtrain) ) #val 10% of train
+    validx = c(validx,famvalidx)
+    famtrain = setdiff(famtrain,validx) # remove validation from train
+    trainidx = c(trainidx,famtrain)
   }
+  
+  ret[["testidx"]]=testidx
+  ret[["trainidx"]]=trainidx
+  ret[["validx"]]=validx
   
   ret[["data"]]=df
   ret[["groups"]]=groups
   ret[["W"]]=W
-  ret[["testidx"]]=testidx
+  
   
   return(ret)
 }
@@ -318,8 +330,8 @@ for(fam in unique(test[,"Family"])){
   dft=data.frame(compmatrix)
   colnames(dft)=methods
   rownames(dft)=methods
-  xtables[[toString(k)]]=xtable(dft,digits=cbind(rep(1,nrow(digitsfmt)),digitsfmt))
-  
+  xtables[[toString(k)]]=xtable(dft,digits=cbind(rep(1,nrow(digitsfmt)),digitsfmt),caption=paste0("non linear task ",k))
+  #print(xtables$`1`, table.placement="H")
 }
 ####################################################################################################
   
@@ -335,24 +347,30 @@ iter=200
 rate=0.01
 ridge.lambda=1  
 data=GenerateLinearData(d=d,ntrain=ntrain,ntest=ntest)
-train = data$data[-data$testidx,]
+train = data$data[data$trainidx,]
 test = data$data[data$testidx,]
-mshared=TrainMultiTaskClassificationGradBoost(train,iter=iter,v=rate,groups=train[,"Family"],controls=controls,ridge.lambda=ridge.lambda)
+val = data$data[data$validx,]
+mshared=TrainMultiTaskClassificationGradBoost(train,iter=iter,v=rate,valdata=val,groups=train[,"Family"],controls=controls,ridge.lambda=ridge.lambda,target="binary")
+mshared2=TrainMultiTaskClassificationGradBoost2(train,iter=iter,v=rate,groups=train[,"Family"],controls=controls,ridge.lambda=ridge.lambda,target="binary",treeType="rpart",valdata=val)
 perTaskModels=list()
 logitModels=list()
 for(fam in unique(train[,"Family"])){
-  cat("wow**********************************\n")
+  
   tr = train[train[,"Family"]==fam,]
-  m0 = TrainMultiTaskClassificationGradBoost(tr,groups = matrix(fam,nrow=nrow(tr),ncol=1),iter=iter,v=rate,
-                                             controls=controls, ridge.lambda = ridge.lambda)  
+  tr.val = val[val[,"Family"]==fam,]
+  
+  m0 = TrainMultiTaskClassificationGradBoost(tr,valdata=val,groups = matrix(fam,nrow=nrow(tr),ncol=1),iter=iter,v=rate,
+                                             controls=controls, ridge.lambda = ridge.lambda,target="binary")  
   perTaskModels[[toString(fam)]]=m0
   logitModels[[toString(fam)]]= cv.glmnet(x=as.matrix(tr[,-which(colnames(tr) %in% c("Family","Label"))]),y=tr[,"Label"],family="binomial",alpha=1,maxit=10000,nfolds=4, thresh=1E-4)
 }
 
 ### train binary model, ignoring multi tasking:
 binaryData = train
-binaryData["Family"]=1
-mbinary=TrainMultiTaskClassificationGradBoost(binaryData,iter=iter,v=rate,groups=matrix(1,nrow=nrow(binaryData),ncol=1),controls=controls,ridge.lambda=ridge.lambda)
+binaryData["Family"]="1"
+binaryVal = val
+binaryVal["Family"]="1"
+mbinary=TrainMultiTaskClassificationGradBoost(binaryData,valdata=binaryVal,iter=iter,v=rate,groups=matrix(1,nrow=nrow(binaryData),ncol=1),controls=controls,ridge.lambda=ridge.lambda)  
 mlogitbinary = cv.glmnet(x=as.matrix(binaryData[,-which(colnames(tr) %in% c("Family","Label"))]),y=binaryData[,"Label"],family="binomial",alpha=1,maxit=10000,nfolds=4, thresh=1E-4)
 
 gplassotraindata = CreateGroupLassoDesignMatrix(train)
@@ -360,48 +378,65 @@ gplassoX = (gplassotraindata$X)[,-ncol(gplassotraindata$X)]
 gplassoy =  (gplassotraindata$X)[,ncol(gplassotraindata$X)]
 gplassoy[gplassoy==-1]=0
 
-mgplasso = cv.grpreg(gplassoX, gplassoy, group=gplassotraindata$groups, nfolds=5, seed=777,family="binomial",trace=TRUE)
+mgplasso = cv.grpreg(gplassoX, gplassoy, group=gplassotraindata$groups, nfolds=2, seed=777,family="binomial",trace=TRUE)
 
 gplassotestdata = CreateGroupLassoDesignMatrix(test)
 gplassotestX = (gplassotestdata$X)[,-ncol(gplassotestdata$X)]
 gplassotesty =  (gplassotestdata$X)[,ncol(gplassotestdata$X)]
 
-gplassoPreds = predict(mgplasso,gplassotestX,type="response",lambda=mgplasso$lambda.min)    
+gplassoPreds = predict(mgplasso,gplassotestX,type="response",lambda=mgplasso$lambda.min)   
 
-methods = c("PANDO","PTB","BB","PTLogit","BinaryLogit","GL")
+methods = c("PANDO","PANDO2","PTB","BB","PTLogit","BinaryLogit","GL")
+rc=list()
+tt=list()
 compmat = c()
 digitsfmt = matrix(-2,nrow=length(methods),ncol=length(methods))
 xtables=list()
-tt=list()
-rc=list()
 k=0
 ##################### test:
 for(fam in unique(test[,"Family"])){
-  k=k+1
+  
+  k = k+1
   compmatrix = matrix(nrow=length(methods),ncol = length(methods))
   #tr.test = test[test[,"Family"] %in% c(fam,"clean"),-which(colnames(test)=="Family")]
   tr.test = test[test["Family"]==fam,]
   tr.test = tr.test[,-which(colnames(tr.test)=="Family")]
-
-  tt[[methods[1]]]=predict.Boost(tr.test[,-which(colnames(tr.test) %in% c("Family","Label"))],mshared[[toString(fam)]],rate=rate)
-  rc[[methods[1]]] = pROC::roc(as.factor(tr.test[,"Label"]),tt[[methods[1]]])
-  tt[[methods[2]]]=predict.Boost(tr.test[,-which(colnames(tr.test) %in% c("Family","Label"))],perTaskModels[[toString(fam)]][[toString(fam)]],rate=rate)
-  rc[[methods[2]]] = pROC::roc(as.factor(tr.test[,"Label"]),tt[[methods[2]]])
-  tt[[methods[3]]] = predict.Boost(tr.test[,-which(colnames(tr.test) %in% c("Family","Label"))],mbinary[[toString(1)]],rate=rate)
-  rc[[methods[3]]] = pROC::roc(as.factor(tr.test[,"Label"]),tt[[methods[3]]])
-  tt[[methods[4]]] =predict(logitModels[[fam]],newx=as.matrix(tr.test[,-which(colnames(tr) %in% c("Family","Label"))]),type="response",s=logitModels[[fam]]$lambda.min)
-  rc[[methods[4]]] = pROC::roc(as.factor(tr.test[,"Label"]),as.numeric(tt[[methods[4]]]))
-  tt[[methods[5]]] =predict(mlogitbinary,newx=as.matrix(tr.test[,-which(colnames(tr) %in% c("Family","Label"))]),type="response",s=mlogitbinary$lambda.min)
-  rc[[methods[5]]] = pROC::roc(as.factor(tr.test[,"Label"]),as.numeric(tt[[methods[5]]]))
-  tt[[methods[6]]] = gplassoPreds[test[,"Family"]==fam]
-  rc[[methods[6]]] = pROC::roc(as.factor(tr.test[,"Label"]),as.numeric(tt[[methods[6]]]))
+  
+  bestIt=min(which(as.vector(mshared$log$vscore)==max(as.vector(mshared$log$vscore))))
+  cat("pando1\n")
+  tt[[methods[which(methods=="PANDO")]]]=predict(mshared[[toString(fam)]],tr.test[,-which(colnames(tr.test) %in% c("Family","Label"))],calibrate=TRUE,bestIt=bestIt)
+  rc[[methods[which(methods=="PANDO")]]] = pROC::roc(as.factor(tr.test[,"Label"]),as.numeric(tt[[methods[which(methods=="PANDO")]]]))
+  
+  cat("pando2\n")
+  bestIt=min(which(as.vector(mshared2$log$vscore)==max(as.vector(mshared2$log$vscore))))    
+  tt[[methods[which(methods=="PANDO2")]]] = predict(mshared2[[toString(fam)]],tr.test[,-which(colnames(tr.test) %in% c("Family","Label"))],calibrate=TRUE,bestIt=bestIt)
+  rc[[methods[which(methods=="PANDO2")]]] = pROC::roc(as.factor(tr.test[,"Label"]),as.numeric(tt[[methods[which(methods=="PANDO2")]]]))
+  
+  cat("ptb\n")
+  bestIt=min(which(as.vector(perTaskModels[[toString(fam)]]$log$vscore)==max(as.vector(perTaskModels[[toString(fam)]]$log$vscore))))    
+  tt[[methods[which(methods=="PTB")]]]=predict(perTaskModels[[toString(fam)]][[toString(fam)]],tr.test[,-which(colnames(tr.test) %in% c("Family","Label"))],calibrate=TRUE,bestIt=bestIt)
+  rc[[methods[which(methods=="PTB")]]] = pROC::roc(as.factor(tr.test[,"Label"]),as.numeric(tt[[methods[which(methods=="PTB")]]]))
+  
+  cat("bb\n")
+  bestIt=min(which(as.vector(mbinary$log$vscore)==max(as.vector(mbinary$log$vscore))))    
+  tt[[methods[which(methods=="BB")]]] = predict(mbinary[[toString(1)]],tr.test[,-which(colnames(tr.test) %in% c("Family","Label"))],calibrate=TRUE,bestIt=bestIt)
+  rc[[methods[which(methods=="BB")]]] = pROC::roc(as.factor(tr.test[,"Label"]),as.numeric(tt[[methods[which(methods=="BB")]]]))
+  
+  tt[[methods[which(methods=="PTLogit")]]] =predict(logitModels[[fam]],newx=as.matrix(tr.test[,-which(colnames(tr) %in% c("Family","Label"))]),type="response",s=logitModels[[fam]]$lambda.min)
+  rc[[methods[which(methods=="PTLogit")]]] = pROC::roc(as.factor(tr.test[,"Label"]),as.numeric(tt[[methods[which(methods=="PTLogit")]]]))
+  
+  tt[[methods[which(methods=="BinaryLogit")]]] =predict(mlogitbinary,newx=as.matrix(tr.test[,-which(colnames(tr) %in% c("Family","Label"))]),type="response",s=mlogitbinary$lambda.min)
+  rc[[methods[which(methods=="BinaryLogit")]]] = pROC::roc(as.factor(tr.test[,"Label"]),as.numeric(tt[[methods[which(methods=="BinaryLogit")]]]))
+  tt[[methods[which(methods=="GL")]]] = gplassoPreds[test[,"Family"]==fam]
+  rc[[methods[which(methods=="GL")]]] = pROC::roc(as.factor(tr.test[,"Label"]),as.numeric(tt[[methods[which(methods=="GL")]]]))
   
   
-  for(i in 1:6){
+  
+  for(i in 1:length(methods)){
     #cat("storing ",round(pROC::auc(rc[[methods[i]]])[1],4)," in ",i,i,"\n" )
     compmatrix[i,i]=round(pROC::auc(rc[[methods[i]]])[1],4) # store auc of this method
     digitsfmt[i,i]=3
-    for(j in 1:6){
+    for(j in 1:length(methods)){
       if(i >=j ){
         next
       }
@@ -412,20 +447,14 @@ for(fam in unique(test[,"Family"])){
   }
   compmat = rbind(compmat,compmatrix)
   
+  cat("***********\n")
+  
+  
   dft=data.frame(compmatrix)
   colnames(dft)=methods
   rownames(dft)=methods
-  xtables[[toString(k)]]=xtable(dft,digits=cbind(rep(1,nrow(digitsfmt)),digitsfmt))
-  
-  #cat("AUROC for ",fam," VS per-task boosted trees is: ",pROC::auc(rc1)[1]," ",pROC::auc(rc2)[1],"diff p-val:",pROC::roc.test(rc1,rc2)$p.value,"\n")
-  #cat("AUROC for ",fam," VS malware-clean boosted trees is: ",pROC::auc(rc1)[1]," ",pROC::auc(rc3)[1],"diff p-val:",pROC::roc.test(rc1,rc3)$p.value,"\n")
-  #cat("AUROC for ",fam," VS PerTaskLogit is: ",pROC::auc(rc1)[1]," ",pROC::auc(rc4)[1],"diff p-val:",pROC::roc.test(rc1,rc4)$p.value,"\n")
-  #cat("AUROC for ",fam," PerTaskBoosting VS BinaryBoosting: ",pROC::auc(rc2)[1]," ",pROC::auc(rc3)[1],"diff p-val:",pROC::roc.test(rc2,rc3)$p.value,"\n")
-  #cat("AUROC for ",fam," PerTaskBoosting VS gplasso: ",pROC::auc(rc2)[1]," ",pROC::auc(rc6)[1],"diff p-val:",pROC::roc.test(rc2,rc6)$p.value,"\n")
-  #cat("AUROC for ",fam," BinaryLogit VS gplasso: ",pROC::auc(rc5)[1]," ",pROC::auc(rc6)[1],"diff p-val:",pROC::roc.test(rc5,rc6)$p.value,"\n")
-  #cat("AUROC for ",fam," PerTaskLogit VS gplasso: ",pROC::auc(rc4)[1]," ",pROC::auc(rc6)[1],"diff p-val:",pROC::roc.test(rc4,rc6)$p.value,"\n")
-  #cat("AUROC for ",fam," PANDO VS gplasso: ",pROC::auc(rc1)[1]," ",pROC::auc(rc6)[1],"diff p-val:",pROC::roc.test(rc1,rc6)$p.value,"\n")
-  cat("***********\n")
+  xtables[[toString(k)]]=xtable(dft,digits=cbind(rep(1,nrow(digitsfmt)),digitsfmt),caption=paste0("linear task ",k))
+  #print(xtables$`1`, table.placement="H")
 }
 ####################################################################################################
 
@@ -446,22 +475,31 @@ for(fam in unique(test[,"Family"])){
 
 
 
-plotImp2 = function(df,signalVars=c(), title="some title", normalize = FALSE){
-  
-  df[,"value"]=df[,"value"]/sum(df[,"value"])
-  colnames(df)=c("varname","value")
+
+
+plotImp2 = function(df,signalVars=c(), title="some title",  flip=FALSE, nfirstvar=30){
+  ### show all signal variables and all variables with importance in the first 95%
+  #signalRows = which(df[,"varname"] %in% c(paste0("X",signalVars)))
+  #importantVariables = which((df[,"value"]/max(df[,"value"]))>0.1)
+  #allRows = c(signalRows,importantVariables)
+  #df[,"value"]=df[,"value"]/sum(df[,"value"])
+  #colnames(df)=c("varname","value")
   #df=df[order(-df[,"value"]),]
-  df <- base::transform(df, varname = reorder(varname, -value))
+  df <- base::transform(df, varname = reorder(varname, if(flip) value else -value))
+  #df = df[order(-df[,"value"]),]
   df[,"Legend"]="noise"
   df[df[,"varname"] %in% c(paste0("X",signalVars)),"Legend"]="signal"
   group.colors <- c(noise = "#C67171", signal = "#7171C6") 
-  p3 = ggplot(head(df,n=60), aes(varname, weight = value,fill=Legend)) + geom_bar()
+  p3 = ggplot(head(df,n=nfirstvar), aes(varname, weight = value,fill=Legend)) + geom_bar()
+  #p3 = ggplot(df,n=nfirstvar), aes(varname, weight = value,fill=Legend)) + geom_bar()
   p3 = p3+scale_fill_manual(values=group.colors)
   p3 = p3 + labs(title = title)
   p3 = p3+ylab("split gain")
   
   #p3=p3+thm
-  #p3=p3+coord_flip()
+  if(flip){
+    p3=p3+coord_flip()
+  }
   p3  
   
 }

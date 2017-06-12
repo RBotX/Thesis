@@ -270,20 +270,9 @@ BoostingModelFeatureImportance = function(model){
 
 
 
-#mshared$fam0$modelList[[5]]$treeFit
+
 featureImp.BoostingModel = function(m){
-  #families=names(mshared)[grepl("fam",names(mshared))]
-  #x1=c()
-  #imp1=list()
-  #perFamilyVars = list()
   tt1=BoostingModelFeatureImportance(m)
-  #x1=c(x1,names(tt1))
-  #for(n in names(tt1)){
-  #  if(is.null(imp1[[n]])){
-  #    imp1[[n]]=0
-  #  }
-  #  imp1[[n]]=imp1[[n]]+tt1[[n]]
-  #}
   return(tt1)
 }
 
@@ -296,33 +285,12 @@ FeatureImportance.BoostingModel = function(m,title=""){
   dffnorm=dff
   dffnorm[,"value"]=dffnorm[,"value"]/sum(dffnorm[,"value"])
   colnames(dffnorm)=c("varname","value")
-  dffnorm <- base::transform(dffnorm, varname = reorder(varname, -value))
+  #dffnorm <- base::transform(dffnorm, varname = reorder(varname, -value))
+  dffnorm=dffnorm[order(-dffnorm[,"value"]),]
   return(dffnorm)
 }
 
-# plotImp = function(df,signalVars=c(), title){
-#   
-#   df[,"value"]=df[,"value"]/sum(df[,"value"])
-#   colnames(df)=c("varname","value")
-#   #df=df[order(-df[,"value"]),]
-#   df <- base::transform(df, varname = reorder(varname, -value))
-#   df[,"Legend"]="noise"
-#   df[df[,"varname"] %in% signalVars,"Legend"]="signal"
-#   group.colors <- c(noise = "#C67171", signal = "#7171C6") 
-#   p3 = ggplot(head(df,n=40), aes(varname, weight = value,fill=Legend)) + geom_bar()
-#   p3 = p3+scale_fill_manual(values=group.colors)
-#   p3 = p3 + labs(title = title)
-#   p3 = p3+ylab("split gain")
-#   
-#   p3=p3#+thm
-#   #p3=p3+coord_flip()
-#   p3
-#   return(dff)
-#   
-# }
-# 
-# 
-# 
+ 
 
 
 PerTaskImportances=function(perTaskModels){
@@ -346,6 +314,7 @@ PerTaskImportances=function(perTaskModels){
   }  
   dffnorm=allimp
   dffnorm[,"value"]=as.numeric(dffnorm[,"value"])/sum(as.numeric(dffnorm[,"value"]))
+  dffnorm <- dffnorm[order(-dffnorm[,"value"]),]
   return(dffnorm)
 }
 
