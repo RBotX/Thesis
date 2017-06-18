@@ -46,7 +46,7 @@ TrainMultiTaskClassificationGradBoost = function(df,valdata=NULL,earlystopping=1
     for(fam in families){
       leavesToCoefs = list()
       leavesToCoefs[[toString(fam)]]=list() 
-    
+    }
     tscore = scorefunc(label=data$Label,preds=yp,scoreType=scoreType)
     log[["tscore"]]=c(log[["tscore"]],tscore)
     if(!is.null(valdata)){
@@ -58,6 +58,7 @@ TrainMultiTaskClassificationGradBoost = function(df,valdata=NULL,earlystopping=1
       log[["vscore"]]=c(log[["vscore"]],vscore)
       
     }
+    
     
     
     ### pseudo responses
@@ -232,8 +233,6 @@ TrainMultiTaskClassificationGradBoost = function(df,valdata=NULL,earlystopping=1
       }
       
     }
-    
-    
   }
   #return(finalModel)  
   ret=list()
