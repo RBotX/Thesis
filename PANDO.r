@@ -1,4 +1,6 @@
 source("helper.R")
+
+
 TrainMultiTaskClassificationGradBoost = function(df,valdata=NULL,earlystopping=100,iter=3,v=1,groups,controls,ridge.lambda,target="binary",treeType="rpart",fitTreeCoef=FALSE,unbalanced=FALSE){
   scoreType = if(target == "binary") "auc" else "rmse"
   log=list()
@@ -38,8 +40,9 @@ TrainMultiTaskClassificationGradBoost = function(df,valdata=NULL,earlystopping=1
   }
   bestScoreRound=1
   for(t in 2:iter){
+    
     if((isval)&(t-bestScoreRound > earlystopping)){
-      cat("EARLY STOPPING AT ",t," best iteration was ",bestScoreRound,"\n")
+      cat("EARLY STOPPING AT ",t," best iteration was ",bestScoreRound," with validation score ",bestVscore,"\n")
       break
     }
     ## for each new tree, we have a new leaf->coef per family
@@ -49,10 +52,11 @@ TrainMultiTaskClassificationGradBoost = function(df,valdata=NULL,earlystopping=1
     }
     tscore = scorefunc(label=data$Label,preds=yp,scoreType=scoreType)
     log[["tscore"]]=c(log[["tscore"]],tscore)
-    if(!is.null(valdata)){
+    if(isval){
       vscore = scorefunc(label=valdata$Label,preds=ypvalscore,scoreType=scoreType)
       if(((vscore > bestVscore)&(scoreType == "auc"))||((vscore < bestVscore)&(scoreType == "rmse"))){
         bestVscore = vscore
+        
         bestScoreRound=t
       }
       log[["vscore"]]=c(log[["vscore"]],vscore)
@@ -75,17 +79,23 @@ TrainMultiTaskClassificationGradBoost = function(df,valdata=NULL,earlystopping=1
     ## create a tree for all families together, 1 vs 0
     if(treeType=="rpart"){
       fit=rpart(pr~.,data=data[,-which(colnames(data) %in% c("Label","Family"))],control=controls,method="anova")  
+      environment(fit$terms) <- NULL
+      obsToLeaf = fit$where
+      #fit = purge(fit)
     }else{
       fit = ctree(y~.,data=data.frame(x=data[,-which(colnames(data) %in% c("Label","Family"))],y=pr),control=controls,cores=3)
+      obsToLeaf = predict(fit,data.frame(x=data[,-which(colnames(data) %in% c("Label","Family"))]),type="node")
     }
     
     
     
     ### fit model with per leaf score
-    leaves = unique(fit$where)
+    #leaves = unique(fit$where)
+    leaves = unique(obsToLeaf)
     for(l in leaves){
       
-      samplesInLeaf = (fit$where==l) ## which are in the l-th leaf
+      #samplesInLeaf = (fit$where==l) ## which are in the l-th leaf
+      samplesInLeaf = (obsToLeaf==l) ## which are in the l-th leaf
       if(length(which(samplesInLeaf))==0){
         next
       }
@@ -149,6 +159,7 @@ TrainMultiTaskClassificationGradBoost = function(df,valdata=NULL,earlystopping=1
       }
       ## when we create a matrix of two columns, and remove one column, we get that ncol=null.
       ## however, when we get a 
+      
       if(is.null(ncol(ridgeRegX)) | numFamilies==1){ ## we have a single family in that leaf
         
         # fam = nonZeroFams
@@ -164,14 +175,33 @@ TrainMultiTaskClassificationGradBoost = function(df,valdata=NULL,earlystopping=1
       PerLeafData = data.frame(ridgeRegX)
       PerLeafData = cbind(PerLeafData,y)
       #cat("before ridge target is ",head(y),"***********\n")
-      m = lm.ridge(y~.-1,data = PerLeafData,lambda=ridge.lambda) 
-      leafCoefs=coef(m)
-      #cat("ceofs of ridge:",coef(m),"\n")
+      
+      lambdas = 2^seq(3, -10, by = -.1)
+      
+      useglmnet=FALSE
+      if(useglmnet){
+        m=cv.glmnet(as.matrix(PerLeafData[,-which(colnames(PerLeafData) == "y")]),as.matrix(PerLeafData[,"y"]), alpha = 0, lambda = lambdas,intercept=FALSE,nfolds=3,standardize=T)  
+        leafCoefs = coef(m,s="lambda.min")
+        fittedFamilies = rownames(leafCoefs)[-1]
+        leafCoefs = data.frame(as.matrix(leafCoefs))[-1,]
+        leafCoefs = setNames(leafCoefs,fittedFamilies)
+        
+      }else{
+        m = lm.ridge(y~.-1,data = PerLeafData,lambda=lambdas) 
+        whichIsBest <- which.min(m$GCV) 
+        leafCoefs=coef(m)[whichIsBest,]
+        fittedFamilies = names(leafCoefs)
+      }
+      
       for(fam in families){
-        if(fam %in% names(leafCoefs)){
-          intercept = as.numeric(coef(m)[1])
-          #leavesToCoefs[[toString(fam)]][[l]]=as.numeric(leafCoefs[toString(fam)])+intercept
-          leavesToCoefs[[toString(fam)]][[l]]=as.numeric(leafCoefs[toString(fam)])
+        if(fam %in% fittedFamilies){
+          #intercept = as.numeric(coef(m)[1])
+          #leavesToCoefs[[toString(fam)]][[l]]=as.numeric(leafCoefs[toString(fam)])
+          intercept = 0
+          
+          leavesToCoefs[[toString(fam)]][[l]]=as.numeric(leafCoefs[fam])
+          
+
         }else{
           leavesToCoefs[[toString(fam)]][[l]]=mean(y)
         }
@@ -180,8 +210,9 @@ TrainMultiTaskClassificationGradBoost = function(df,valdata=NULL,earlystopping=1
     ### for this stage, we have a tree per family, and a coefficient per leaf per tree.
     ### in the final model, we can now have the TreeWithLeafWeights object and use this
     ### when we predic in the predict.boost stage...
+    
     for(fam in families){
-      
+
       finalModel[[toString(fam)]][[t]] = TreeWithLeafCoefs(fit,leavesToCoefs[[toString(fam)]])
       if(fitTreeCoef){
         famX = predict(finalModel[[toString(fam)]][[t]] ,data[(data[,"Family"]==fam),-which(colnames(data) %in% c("Label","Family"))])        
@@ -206,7 +237,7 @@ TrainMultiTaskClassificationGradBoost = function(df,valdata=NULL,earlystopping=1
     if(isval){
       valfamPreds=matrix(ncol=1,nrow=length(ypval))      
     }
-
+    
     for(fam in families){
       pp = predict(finalModel[[toString(fam)]][[t]],data[data[,"Family"]==fam,-which(colnames(data) %in% c("Label","Family"))])
       famPreds[data[,"Family"]==fam,1]=as.matrix(pp,ncol=1)
@@ -216,6 +247,7 @@ TrainMultiTaskClassificationGradBoost = function(df,valdata=NULL,earlystopping=1
       }
     
     }
+    
     yp = yp + v*famPreds
     if(isval){
       ypval = ypval + v*valfamPreds
@@ -233,7 +265,9 @@ TrainMultiTaskClassificationGradBoost = function(df,valdata=NULL,earlystopping=1
       }
       
     }
+    
   }
+  
   #return(finalModel)  
   ret=list()
   for(fam in families){
@@ -244,6 +278,7 @@ TrainMultiTaskClassificationGradBoost = function(df,valdata=NULL,earlystopping=1
   }
   ret[["rate"]]=v
   ret[["log"]]=log
+  ret[["bestScoreRound"]]=if(isval) bestScoreRound else iter
   return(ret)  
   
 }

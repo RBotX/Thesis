@@ -35,7 +35,13 @@ for(l in 1:NUM_TESTS){
   testidx = c()
   for(fam in unique(schools2[,"Family"])){
     #http://aima.eecs.berkeley.edu/~russell/classes/cs294/f05/papers/evgeniou+al-2005.pdf they take 75-25 train-test split, cited 669 times
-    testidx = c(testidx, sample(which(schools2[,"Family"]==fam),floor(length(which(schools2[,"Family"]==fam))*0.30) )) 
+    testidx = c(testidx, sample(which(schools2[,"Family"]==fam),floor(length(which(schools2[,"Family"]==fam))*0.3) ))
+    famtrain = setdiff(which(schools2[,"Family"]==fam),testidx)
+    famvalidx = sample(famtrain,0.1*length(famtrain) ) #val 10% of train
+    validx = c(validx,famvalidx)
+    famtrain = setdiff(famtrain,validx) # remove validation from train
+    trainidx = c(trainidx,famtrain)
+    
   }
   
   
@@ -43,19 +49,22 @@ for(l in 1:NUM_TESTS){
   data=list()
   data[["data"]]=schools2
   data[["testidx"]]=testidx
+  data[["trainidx"]]=trainidx
+  data[["validx"]]=validx
   
   
-  iter=550
+  iter=1000
   rate=0.01
   ridge.lambda=1  
   #data=GenerateData(d=d,ntrain=ntrain,ntest=ntest,seed=i)
   
-  train = data$data[-data$testidx,]
+  train = data$data[data$trainidx,]
   test = data$data[data$testidx,]
+  val = data$data[data$validx,]
   
-  mshared=TrainMultiTaskClassificationGradBoost(train,val=test,iter=iter,v=rate,groups=train[,"Family"],controls=rpart.control(maxdepth = 3,cp=0.0001),ridge.lambda=ridge.lambda,target="regression")
-  mshared2=TrainMultiTaskClassificationGradBoost2(train,val=test,iter=iter,v=rate,groups=train[,"Family"],controls=rpart.control(maxdepth = 3,cp=0.0001),ridge.lambda=ridge.lambda,target="regression",treeType="rpart")
-  mshared3=TrainMultiTaskClassificationGradBoost2(train,val=test,iter=iter,v=rate,groups=train[,"Family"],controls=rpart.control(maxdepth = 3,cp=0.0001),ridge.lambda=ridge.lambda,target="regression",fitCoef="norm2",treeType="rpart")
+  mshared=TrainMultiTaskClassificationGradBoost(train,val=val,iter=iter,v=rate,groups=train[,"Family"],controls=rpart.control(maxdepth = 3,cp=0.0001),ridge.lambda=ridge.lambda,target="regression",treeType="rpart")
+  mshared2=TrainMultiTaskClassificationGradBoost2(train,val=val,iter=iter,v=rate,groups=train[,"Family"],controls=rpart.control(maxdepth = 3,cp=0.0001),ridge.lambda=ridge.lambda,target="regression",treeType="rpart")
+  #mshared3=TrainMultiTaskClassificationGradBoost2(train,val=test,iter=iter,v=rate,groups=train[,"Family"],controls=rpart.control(maxdepth = 3,cp=0.0001),ridge.lambda=ridge.lambda,target="regression",fitCoef="norm2",treeType="rpart")
   
   perTaskModels=list()
   logitModels=list()
@@ -88,7 +97,7 @@ for(l in 1:NUM_TESTS){
 
   gplassoPreds = predict(mgplasso,gplassotestX,type="response",lambda=mgplasso$lambda.min)
 
-  methods = c("PANDO","PTB","BB","PTLogit","BinaryLogit","PANDO2","PANDO3","GL")
+  methods = c("PANDO","PTB","BB","PTLogit","BinaryLogit","PANDO2","GL")#,"PANDO3","GL")
   
   rc=list()
   tt=list()
@@ -104,19 +113,24 @@ for(l in 1:NUM_TESTS){
   for(fam in unique(test[,"Family"])){
     k = k+1
     testidxs = which(test["Family"]==fam)
-    compmatrix = matrix(nrow=length(methods),ncol = length(methods))
+    compmatrix = matrix(NA,nrow=length(methods),ncol = length(methods))
     
     tr.test = test[test["Family"]==fam,]
     tr.test = tr.test[,-which(colnames(tr.test)=="Family")]
     
-    tt[[methods[1]]]= predict(mshared[[toString(fam)]],tr.test[,-which(colnames(tr.test) %in% c("Family","Label"))],calibrate=FALSE)
-    tt[[methods[2]]]= predict(perTaskModels[[toString(fam)]][[toString(fam)]],tr.test[,-which(colnames(tr.test) %in% c("Family","Label"))],calibrate=FALSE)
-    tt[[methods[3]]] = predict(mbinary[[toString(1)]],tr.test[,-which(colnames(tr.test) %in% c("Family","Label"))],calibrate=FALSE)
-    tt[[methods[4]]] =predict(logitModels[[toString(fam)]],newx=as.matrix(tr.test[,-which(colnames(tr) %in% c("Family","Label"))]),type="response",s=logitModels[[toString(fam)]]$lambda.min)
-    tt[[methods[5]]] =predict(mlogitbinary,newx=as.matrix(tr.test[,-which(colnames(tr) %in% c("Family","Label"))]),type="response",s=mlogitbinary$lambda.min)
-    tt[[methods[6]]] = predict(mshared2[[toString(fam)]],tr.test[,-which(colnames(tr.test) %in% c("Family","Label"))],calibrate=FALSE)
-    tt[[methods[7]]] = predict(mshared3[[toString(fam)]],tr.test[,-which(colnames(tr.test) %in% c("Family","Label"))],calibrate=FALSE)
-    tt[[methods[8]]] = gplassoPreds[test[,"Family"]==fam]
+    bestIt=min(which(as.vector(mshared$log$vscore)==max(as.vector(mshared$log$vscore))))    
+    tt[[methods[which(methods=="PANDO")]]]= predict(mshared[[toString(fam)]],tr.test[,-which(colnames(tr.test) %in% c("Family","Label"))],calibrate=TRUE,bestIt=bestIt)
+    tt[[methods[which(methods=="PTB")]]]= predict(perTaskModels[[toString(fam)]][[toString(fam)]],tr.test[,-which(colnames(tr.test) %in% c("Family","Label"))],calibrate=TRUE)
+    
+    bestIt=min(which(as.vector(mbinary$log$vscore)==max(as.vector(mbinary$log$vscore))))    
+    tt[[methods[which(methods=="BB")]]] = predict(mbinary[[toString(1)]],tr.test[,-which(colnames(tr.test) %in% c("Family","Label"))],calibrate=TRUE,bestIt=bestIt)
+    tt[[methods[which(methods=="PTLogit")]]] =predict(logitModels[[toString(fam)]],newx=as.matrix(tr.test[,-which(colnames(tr) %in% c("Family","Label"))]),type="response",s=logitModels[[toString(fam)]]$lambda.min)
+    tt[[methods[which(methods=="BinaryLogit")]]] =predict(mlogitbinary,newx=as.matrix(tr.test[,-which(colnames(tr) %in% c("Family","Label"))]),type="response",s=mlogitbinary$lambda.min)
+    
+    bestIt=min(which(as.vector(mshared2$log$vscore)==max(as.vector(mshared2$log$vscore))))    
+    tt[[methods[which(methods=="PANDO2")]]] = predict(mshared2[[toString(fam)]],tr.test[,-which(colnames(tr.test) %in% c("Family","Label"))],calibrate=TRUE,bestIt=bestIt)
+    #tt[[methods[7]]] = predict(mshared3[[toString(fam)]],tr.test[,-which(colnames(tr.test) %in% c("Family","Label"))],calibrate=TRUE)
+    tt[[methods[which(methods=="GL")]]] = gplassoPreds[test[,"Family"]==fam]
     
     for(i in 1:length(methods)){
       rc[[methods[i]]]=sqrt(mean((tr.test[,"Label"]-tt[[methods[i]]])**2))

@@ -1,7 +1,8 @@
 source("helper.R")
 
+
 TrainMultiTaskClassificationGradBoost2 = function(df,valdata=NULL,earlystopping=100,iter=3,v=1,groups,controls,ridge.lambda,target="binary",df.val=NULL,fitCoef="ls",treeType="rpart",unbalanced=FALSE){
-    
+  
   scoreType = if(target == "binary") "auc" else "rmse"
   log=list()
   log[["tscore"]]=c()
@@ -40,7 +41,7 @@ TrainMultiTaskClassificationGradBoost2 = function(df,valdata=NULL,earlystopping=
   bestScoreRound=1
   for(t in 2:iter){
     if((isval)&(t-bestScoreRound > earlystopping)){
-      cat("EARLY STOPPING AT ",t," best iteration was ",bestScoreRound,"\n")
+      cat("EARLY STOPPING AT ",t," best iteration was ",bestScoreRound," with validation score ",bestVscore,"\n")
       break
     }
     
@@ -76,6 +77,7 @@ TrainMultiTaskClassificationGradBoost2 = function(df,valdata=NULL,earlystopping=
     if(treeType=="rpart"){
       fit=rpart(pr~.,data=data[,-which(colnames(data) %in% c("Label","Family"))],control=controls,method="anova")
       environment(fit$terms) <- NULL ## shrink size of rpart opbject
+      #fit = purge(fit)
     }else{
       fit=ctree(y~.,data=data.frame(x=data[,-which(colnames(data) %in% c("Label","Family"))],y=pr),control=controls,cores=3)  
     }
@@ -140,13 +142,24 @@ TrainMultiTaskClassificationGradBoost2 = function(df,valdata=NULL,earlystopping=
     colnames(ridgeReg)=c(families,"y")
     
     if(fitCoef == "ridge"){
-    #mm = lm.ridge(y~-1.,data = ridgeReg,lambda=ridge.lambda,tol=0.001)
-    mm=glmnet(as.matrix(ridgeReg[,-which(colnames(ridgeReg) == "y")]),as.matrix(ridgeReg[,"y"]), alpha = 0, lambda = ridge.lambda,intercept=FALSE)
-    for(i  in 1:length(families)){
-      fittedCoef = coef(mm)[i]
-      fittedIntercept=0 ### fitting without intercept
-      finalModel[[toString(families[i])]][[t]] = TreeWithCoef(fit,fittedCoef,fittedIntercept,treeType = treeType)
+      useglmnet=FALSE
+      lambdas = 2^seq(3, -10, by = -.1)
+      if(useglmnet){
+        mm=cv.glmnet(as.matrix(ridgeReg[,-which(colnames(ridgeReg) == "y")]),as.matrix(ridgeReg[,"y"]), alpha = 0, lambda = lambdas,intercept=FALSE,nfolds=3,standardize=T)          
+        coefs =coef(mm,s="lambda.min")
+        coefs = data.frame(as.matrix(coefs)[-1,])[,1]
+        
+      }else{
+        m = lm.ridge(y~.-1,data = ridgeReg,lambda=lambdas) 
+        whichIsBest <- which.min(m$GCV) 
+        coefs = coef(m)[whichIsBest,]
       }
+      names(coefs)=families
+      for(fam in families){
+        fittedCoef =as.numeric(coefs[fam]) # first coefficient is intercept (which is empty in this case)
+        fittedIntercept=0 ### fitting without intercept
+        finalModel[[fam]][[t]] = TreeWithCoef(fit,fittedCoef,fittedIntercept,treeType = treeType)
+        }
     }
     ## generate new pseduo-responses:
     famPreds=matrix(ncol=1,nrow=length(yp))
@@ -196,5 +209,6 @@ TrainMultiTaskClassificationGradBoost2 = function(df,valdata=NULL,earlystopping=
     ret[[toString(fam)]] = BoostingModel(finalModel[[toString(fam)]][1:bestScoreRound],rate=rate)
   }
   ret[["log"]]=log
+  ret[["bestScoreRound"]]=if(isval) bestScoreRound else iter
   return(ret)  
 }
