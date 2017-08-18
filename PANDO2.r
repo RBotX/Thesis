@@ -123,17 +123,10 @@ TrainMultiTaskClassificationGradBoost2 = function(df,valdata=NULL,earlystopping=
       }
       fittedIntercept = 0
       
-      if(fitCoef == "norm2"){
-        #fittedCoef = sqrt(sum((lmdf[,"x"]-lmdf[,"y"])**2)) ## like in obozinski  
-        
-        fittedCoef = sqrt(sum(negative_gradient(lmdf[,"y"],lmdf[,"x"],target)**2)) ## like in obozinski  
+      if(fitCoef == "obo"){
+        fittedCoef = mean(negative_gradient(lmdf[,"y"],lmdf[,"x"],target)) ## like in obozinski 
       }
-      if(fitCoef == "norm1"){
-        #fittedCoef = sqrt(sum((lmdf[,"x"]-lmdf[,"y"])**2)) ## like in obozinski  
-        
-        fittedCoef = sum(abs(negative_gradient(lmdf[,"y"],lmdf[,"x"],target))) ## like in obozinski  
-      }
-      
+
       finalModel[[toString(fam)]][[t]] = TreeWithCoef(fit,fittedCoef,fittedIntercept,treeType=treeType)
       
     }

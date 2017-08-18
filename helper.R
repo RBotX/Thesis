@@ -7,6 +7,9 @@ require(partykit)
 library(plyr)
 library(ggplot2)
 library(reshape2)
+library(purge)
+
+
 
 
 ##########################################
@@ -46,28 +49,13 @@ CreateGroupLassoDesignMatrix = function(X){
       next
     }
     taskXpad = matrix(0,ncol=ncol(Xgl),nrow=nrow(taskX))
-    #taskypad = matrix(0,ncol=1,nrow=nrow(Xgl))
+
     Xgl=cbind(Xgl,matrix(0,ncol=ncol(taskX),nrow=nrow(Xgl)))
     taskX = cbind(taskXpad,taskX)
-    #tasky = rbind(taskypad,tasky)
+
     Xgl = rbind(Xgl,taskX)
     ygl = rbind(ygl,tasky) 
-    # cat("update gplasso matrix with fam is :" ,fam,"out of ",length(families)," families\n")
-    # nr = nrow(X[X[,"Family"]==fam,]) ## how many instances for this family/task
-    # nc = colsPerTask ## we know in our formulation that all tasks share the same number of features
-    # rowstart=(rowend+1)#(i*nr)+1
-    # rowend = rowstart + nr -1
-    # colstart = (i*nc)+1
-    # colend = (i+1)*nc
-    # #cat(rowstart,"->",rowend,"\n")
-    # #cat(colstart,"->",colend,"\n")
-    # uu=as.matrix(X[X[,"Family"]==fam,-which(colnames(X) %in% c("Family","Label"))])
-    # Xgl[rowstart:rowend,colstart:(colend-1)]<-uu
-    # Xgl[rowstart:rowend,colend]=matrix(1,nrow=length(rowstart:rowend),ncol=1) ## add intercept per task
-    # ## add label
-    # Xgl[rowstart:rowend,ncol(Xgl)] = as.matrix(X[X[,"Family"]==fam,"Label"])
-    # i=i+1
-    
+
   }
   ret=list()
   cat(nrow(ygl),"\n")
@@ -77,11 +65,18 @@ CreateGroupLassoDesignMatrix = function(X){
   return(ret)
 }
 
-
-negBinLogLikeLoss = function(preds,y){
+## preds = predictions, y = true value
+negBinLogLikeLoss = function(preds=preds,y=y){
   ret = log(1+exp(-2*y*preds))
   return(ret)
 }
+
+## preds = predictions, y = true value
+squareLoss = function(preds,y){
+  ret = (preds-y)**2
+  return(ret)
+}
+
 ### return the negative gradient with respect to the loss function, 
 ### will be simply residuals for least squares
 negative_gradient = function(y,preds,groups=NULL,target="binary",unbalanced=FALSE){
@@ -89,8 +84,8 @@ negative_gradient = function(y,preds,groups=NULL,target="binary",unbalanced=FALS
   ##
   if(target=="binary"){
     preds0 = 1-preds
-    preds0[preds0<0.001]=0.001 ## not allow very small divisions
-    preds[preds<0.001]=0.001 ## not allow very small divisions
+    preds0[preds0<0.00001]=0.00001 ## not allow very small divisions
+    preds[preds<0.00001]=0.00001 ## not allow very small divisions
     
     if(unbalanced){
       
@@ -101,7 +96,7 @@ negative_gradient = function(y,preds,groups=NULL,target="binary",unbalanced=FALS
       ret = preds*((Iplus/nplus) + (Iminus/nminus))
     }else{
       ff = 0.5*log(preds/preds0)
-      ret = (2*y)/(1+exp(2*y*ff)) ## A gradient boosting machine, page 9
+      ret = (2*y)/(1+exp(2*y*ff)) ## greedy function approximation, a gradient boosting machine, page 9
     }
     #####
     
@@ -124,7 +119,7 @@ TreeWithCoef= function(treeFit,fittedCoef,intercept,treeType="rpart") {
   ### if we make the returned object from here
   ### compatible with "predict", we can 
   ### use the predict.boost
-  
+  treeFit = purge(treeFit)
   model = structure(list(treeFit=treeFit,fittedCoef=fittedCoef,intercept=intercept,treeType=treeType),class="treeWithCoef")
   return(model)
   
@@ -156,7 +151,7 @@ TreeWithLeafCoefs= function(treeFit,leafToCoef) {
   ### if we make the returned object from here
   ### compatible with "predict", we can 
   ### use the predict.boost
-  
+  treeFit=purge(treeFit)
   model = structure(list(treeFit=treeFit,leafToCoef=leafToCoef),class="treeWithLeafCoefsModel")
   return(model)
   
@@ -212,18 +207,19 @@ predict.BoostingModel = function(m,X,calibrate=TRUE,bestIt=NULL){
   if(is.null(bestIt)){
     bestIt=length(m$modelList)
   }
-  
-  for(i in 2:bestIt){
-    if(i > length( m$modelList)){
-      cat("model is length ", length(m$modelList)," i is ", i,"\n")
-    }
-    mm = m$modelList[[i]]  # extract i-th tree
-    newpred=predict(modelObject=mm,newdata=X)
-    pred = pred+(rate*newpred)
-    #pred = pred+newpred
-    pred = as.matrix(pred,ncol=1)
-    if(nrow(pred) != nrow(X)){
-      cat("predict in submodel yielded different number of rows\n")
+  if(bestIt>1){
+    for(i in 2:bestIt){
+      if(i > length( m$modelList)){
+        cat("model is length ", length(m$modelList)," i is ", i,"\n")
+      }
+      mm = m$modelList[[i]]  # extract i-th tree
+      newpred=predict(modelObject=mm,newdata=X)
+      pred = pred+(rate*newpred)
+      #pred = pred+newpred
+      pred = as.matrix(pred,ncol=1)
+      if(nrow(pred) != nrow(X)){
+        cat("predict in submodel yielded different number of rows\n")
+      }
     }
   }
   if(calibrate){

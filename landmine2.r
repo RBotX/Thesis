@@ -45,7 +45,7 @@ for(l in 1:NUM_TESTS){
   data[["trainidx"]]=trainidx
   data[["validx"]]=validx
   
-  #controls=rpart.control(maxdepth = 3)
+  controls=rpart.control(cp=0.0001)
   iter=5000
   rate=0.01
   ridge.lambda=1  
@@ -55,17 +55,17 @@ for(l in 1:NUM_TESTS){
   test = data$data[data$testidx,]
   val = data$data[data$validx,]
   cat("starting pando\n")
-  mshared=TrainMultiTaskClassificationGradBoost(train,iter=iter,v=rate,groups=train[,"Family"],controls=rpart.control(maxdepth = 2, cp=0.0001),ridge.lambda=ridge.lambda,target="binary",valdata=val,fitTreeCoef = FALSE)
+  mshared=TrainMultiTaskClassificationGradBoost(train,iter=iter,v=rate,groups=train[,"Family"],controls=controls,ridge.lambda=ridge.lambda,target="binary",valdata=val,fitTreeCoef = FALSE)
   
   
   cat("starting pando2\n")
-  mshared2=TrainMultiTaskClassificationGradBoost2(train,iter=iter,v=rate,groups=train[,"Family"],controls=rpart.control(maxdepth = 2, cp=0.0001),ridge.lambda=ridge.lambda,target="binary",treeType="rpart",valdata=val)
+  mshared2=TrainMultiTaskClassificationGradBoost2(train,iter=iter,v=rate,groups=train[,"Family"],controls=controls,ridge.lambda=ridge.lambda,target="binary",treeType="rpart",valdata=val)
   
   cat("starting pando3\n")
-  mshared3=TrainMultiTaskClassificationGradBoost(train,iter=iter,v=rate,groups=train[,"Family"],controls=rpart.control(maxdepth = 2, cp=0.0001),ridge.lambda=ridge.lambda,target="binary",valdata=val,fitTreeCoef = TRUE)
+  mshared3=TrainMultiTaskClassificationGradBoost(train,iter=iter,v=rate,groups=train[,"Family"],controls=controls,ridge.lambda=ridge.lambda,target="binary",valdata=val,fitTreeCoef = TRUE)
   
   cat("starting pando4\n")
-  mshared4=TrainMultiTaskClassificationGradBoost(train,iter=iter,v=rate,groups=train[,"Family"],controls=rpart.control(maxdepth = 2, cp=0.0001),ridge.lambda=2,target="binary",valdata=val,fitTreeCoef = FALSE)
+  mshared4=TrainMultiTaskClassificationGradBoost(train,iter=iter,v=rate,groups=train[,"Family"],controls=controls,ridge.lambda=2,target="binary",valdata=val,fitTreeCoef = FALSE)
   
   
   
@@ -81,7 +81,7 @@ for(l in 1:NUM_TESTS){
     cat("fam ",fam,"\n")
     tr = train[train[,"Family"]==fam,]
     tr.val = val[val[,"Family"]==fam,]
-    m0 = TrainMultiTaskClassificationGradBoost(tr,valdata=tr.val,groups = matrix(fam,nrow=nrow(tr),ncol=1),iter=iter,v=rate,
+    m0 = TrainMultiTaskClassificationGradBoost(tr,valdata=NULL,groups = matrix(fam,nrow=nrow(tr),ncol=1),iter=20,v=rate,
                                                controls=rpart.control(maxdepth = 2,cp=0.0001), ridge.lambda = ridge.lambda,target="binary")  
     perTaskModels[[toString(fam)]]=m0
     logitModels[[toString(fam)]]= cv.glmnet(x=as.matrix(tr[,-which(colnames(tr) %in% c("Family","Label"))]),y=tr[,"Label"],family="binomial",alpha=1,maxit=10000,nfolds=3, thresh=1E-4)

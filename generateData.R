@@ -1,5 +1,6 @@
 source("PANDO.r")
 source("PANDO2.r")
+source("PandoObo.R")
 source("helper.R")
 library(MASS)
 library(grpreg)
@@ -229,6 +230,7 @@ test = data$data[data$testidx,]
 val = data$data[data$validx,]
 mshared=TrainMultiTaskClassificationGradBoost(train,iter=iter,v=rate,valdata=val,groups=train[,"Family"],controls=controls,ridge.lambda=ridge.lambda,target="binary")
 mshared2=TrainMultiTaskClassificationGradBoost2(train,iter=iter,v=rate,groups=train[,"Family"],controls=controls,ridge.lambda=ridge.lambda,target="binary",treeType="rpart",valdata=val)
+mshared3=Obo(train,valdata=val,minlambda=0.0001,iter=10000,v=rate,groups=train[,"Family"],controls,target="binary",treeType="rpart")
 perTaskModels=list()
 logitModels=list()
 for(fam in unique(train[,"Family"])){
