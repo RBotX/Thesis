@@ -223,9 +223,11 @@ Obo = function(df,valdata=NULL,earlystopping=100,iter=10000,v=0.01,groups,contro
     gamma_prev = gamma_t
     gamma_t = lambda_t*L12penalty(coefMatrix) + mean(lossFunc(preds=ypscore,y=data$Label)) ## current gamma
     if(t<5) next
-    cat("gammas are: gamma_t:", gamma_t, " gamma_prev:", gamma_prev," distance:",abs(gamma_t-gamma_prev),"\n")
-    while(abs(gamma_t-gamma_prev) > 1e-04 ){
-      cat("gammas are: gamma_t:", gamma_t, " gamma_prev:", gamma_prev," distance:",abs(gamma_t-gamma_prev),"\n")
+    #cat("gammas are: gamma_t:", gamma_t, " gamma_prev:", gamma_prev," distance:",abs(gamma_t-gamma_prev),"\n")
+    correctionStepsTaken=0
+    while((abs(gamma_t-gamma_prev) > 1e-06) & (correctionStepsTaken < 5) ){
+      correctionStepsTaken = correctionStepsTaken+1
+      cat("iteration: ",t, " lambda_t: ",lambda_t," gammas are: gamma_t:", gamma_t, " gamma_prev:", gamma_prev," distance:",abs(gamma_t-gamma_prev),"\n")
       ## choose covariate (tree) to modify its coefficient across tasks:
       gamma_grads=matrix(nrow=numFamilies,ncol=0) ## column k is the partial gradient with respect to w_k. one row per task
       for(j in 2:t){
@@ -248,14 +250,14 @@ Obo = function(df,valdata=NULL,earlystopping=100,iter=10000,v=0.01,groups,contro
       }
       ## chosen covariate will be the column of gamma_grads whose norm2 is the largest
       gammaNorms = apply(gamma_grads,MARGIN = 2,function(x){sqrt(sum(x**2))})
-      cat("gamma norms is: ",gammaNorms,"\n")
+      #cat("gamma norms is: ",gammaNorms,"\n")
       chosenCovariateIndex = which(gammaNorms == max(gammaNorms))
           
-      cat("backward step: fixing covariate ",chosenCovariateIndex+1,"\n")
+      #cat("backward step: fixing covariate ",chosenCovariateIndex+1,"\n")
       ## now we have the chosen covariate, modify its coefficient accordingly with a backward step:
       coefs = coefMatrix[,chosenCovariateIndex]
       coefsnorm = sqrt(sum(coefs**2))
-      newcoefs = v*((lambda_t*(coefs/coefsnorm)) + loss_grads) # step size for backward step as described in short version --> is this line search equivalent?
+      newcoefs = coefs -  v*((lambda_t*(coefs/coefsnorm)) + loss_grads) # step size for backward step as described in short version --> is this line search equivalent?
       
       
       ######################
@@ -283,7 +285,7 @@ Obo = function(df,valdata=NULL,earlystopping=100,iter=10000,v=0.01,groups,contro
       # newcoefs = v*newcoefs
       
       ######################
-      cat("replacing coefficients:\n",coefMatrix[,chosenCovariateIndex], "\n", newcoefs,"\n")
+      cat("replacing coefficients: ",chosenCovariateIndex+1,"\n",coefMatrix[,chosenCovariateIndex], "\n", newcoefs,"\n")
       coefMatrix[,chosenCovariateIndex] =  newcoefs ## update coefficient matrix
       #stop("debug\n")
       ## update the relevant cofficient per task, and respectively the overall prediction with the new coefficient
