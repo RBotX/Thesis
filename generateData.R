@@ -230,7 +230,7 @@ test = data$data[data$testidx,]
 val = data$data[data$validx,]
 mshared=TrainMultiTaskClassificationGradBoost(train,iter=iter,v=rate,valdata=val,groups=train[,"Family"],controls=controls,ridge.lambda=ridge.lambda,target="binary")
 mshared2=TrainMultiTaskClassificationGradBoost2(train,iter=iter,v=rate,groups=train[,"Family"],controls=controls,ridge.lambda=ridge.lambda,target="binary",treeType="rpart",valdata=val)
-mshared3=Obo(train,valdata=val,minlambda=0.0001,iter=10000,v=rate,groups=train[,"Family"],controls,target="binary",treeType="rpart")
+#mshared3=Obo(train,valdata=val,iter=iter,v=rate,groups=train[,"Family"],controls,target="binary",treeType="rpart")
 perTaskModels=list()
 logitModels=list()
 for(fam in unique(train[,"Family"])){
@@ -290,7 +290,8 @@ for(fam in unique(test[,"Family"])){
   bestIt=min(which(as.vector(mshared2$log$vscore)==max(as.vector(mshared2$log$vscore))))    
   tt[[methods[which(methods=="PANDO2")]]] = predict(mshared2[[toString(fam)]],tr.test[,-which(colnames(tr.test) %in% c("Family","Label"))],calibrate=TRUE,bestIt=bestIt)
   rc[[methods[which(methods=="PANDO2")]]] = pROC::roc(as.factor(tr.test[,"Label"]),as.numeric(tt[[methods[which(methods=="PANDO2")]]]))
-  
+
+
   cat("ptb\n")
   bestIt=min(which(as.vector(perTaskModels[[toString(fam)]]$log$vscore)==max(as.vector(perTaskModels[[toString(fam)]]$log$vscore))))    
   tt[[methods[which(methods=="PTB")]]]=predict(perTaskModels[[toString(fam)]][[toString(fam)]],tr.test[,-which(colnames(tr.test) %in% c("Family","Label"))],calibrate=TRUE,bestIt=bestIt)

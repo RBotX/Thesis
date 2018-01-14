@@ -10,7 +10,12 @@ library(reshape2)
 library(purge)
 
 
-
+#### mock for group lasso
+aa=matrix(1:18,ncol=3)
+aa=data.frame(aa)
+aa=cbind(aa,rep(1,nrow(aa)))
+aa=cbind(aa,c("fam1","fam1","fam2","fam2","fam3","fam3"))
+colnames(aa)=c("f1","f2","f3","Label","Family")
 
 ##########################################
 scorefunc = function(label,preds,scoreType){
@@ -23,7 +28,7 @@ scorefunc = function(label,preds,scoreType){
 }
 
 
-CreateGroupLassoDesignMatrix = function(X){
+CreateGroupLassoDesignMatrix = function(X,interceptGrouped=FALSE,isIntercept=TRUE){
   
   families = unique(X[,"Family"])
   ntasks=length(families)
@@ -35,7 +40,12 @@ CreateGroupLassoDesignMatrix = function(X){
   
   rowend=0
   #cat("ncol of xgl is:",ncol(Xgl),"\n")
-  groups=rep(1:colsPerTask,ntasks) # which group each variable belongs to. in our case, we group the same variable across tasks
+  if(interceptGrouped){
+    groups=rep(1:colsPerTask,ntasks) # which group each variable belongs to. in our case, we group the same variable across tasks  
+  }else{
+    groups=rep(c(1:(colsPerTask-1),0),ntasks) # which group each variable belongs to. in our case, we group the same variable across tasks  
+  }
+  
   Xgl=c()
   ygl=c()
   for(fam in families){
@@ -65,6 +75,72 @@ CreateGroupLassoDesignMatrix = function(X){
   return(ret)
 }
 
+
+# binaryVariablesLambda 
+CreateVibratingGroupLassoDesignMatrix = function(X,interceptGrouped=FALSE,isIntercept=TRUE,binaryVariablesLambda=1){
+  
+  families = unique(X[,"Family"])
+  ntasks=length(families)
+  colsPerTask = (ncol(X)-2) # removing label and family columns
+  colsPerTask = colsPerTask+1 # adding intercept column per each task (two different rows of code just for readibility)
+  Xgl = matrix(NA,nrow=nrow(X),ncol=(colsPerTask*ntasks)+1) # the +1 is for the label
+  #cat(nrow(Xgl),"XGL",ncol(Xgl),"\n")
+  i=0
+  
+  rowend=0
+  #cat("ncol of xgl is:",ncol(Xgl),"\n")
+  if(interceptGrouped){
+    groups=rep(1:colsPerTask,ntasks) # which group each variable belongs to. in our case, we group the same variable across tasks  
+  }else{
+    groups=rep(c(1:(colsPerTask-1),0),ntasks) # which group each variable belongs to. in our case, we group the same variable across tasks  
+  }
+  
+  Xgl=c()
+  ygl=c()
+  for(fam in families){
+    cat("update gplasso matrix with fam is :" ,fam,"out of ",length(families)," families\n")
+    taskX=as.matrix(X[X[,"Family"]==fam,-which(colnames(X) %in% c("Family","Label"))])
+    taskX=cbind(taskX,matrix(1,nrow=nrow(taskX),ncol=1)) # add intercept per task
+    tasky = as.matrix(X[X[,"Family"]==fam,"Label"],ncol=1)
+    if(is.null(Xgl)){
+      Xgl=taskX
+      ygl=tasky
+      next
+    }
+    taskXpad = matrix(0,ncol=ncol(Xgl),nrow=nrow(taskX))
+    
+    Xgl=cbind(Xgl,matrix(0,ncol=ncol(taskX),nrow=nrow(Xgl)))
+    taskX = cbind(taskXpad,taskX)
+    
+    Xgl = rbind(Xgl,taskX)
+    ygl = rbind(ygl,tasky) 
+    
+  }
+  
+  ## add a column per variable, across all tasks, to allow "binary lasso" to be on the regularization path
+  binaryX = c()
+  for(fam in families){
+    binaryX = rbind(binaryX,as.matrix(X[X[,"Family"]==fam,-which(colnames(X) %in% c("Family","Label"))]))
+  }
+  ## add intercept
+  binaryX = cbind(binaryX,matrix(1,nrow=nrow(binaryX),ncol=1))
+  
+  ## express binary regularization lambda
+  binaryX = binaryVariablesLambda * binaryX
+  Xgl = (1-binaryVariablesLambda)*Xgl ## balance between binary solution and group lasso solution
+  Xgl = cbind(Xgl,binaryX)
+  groups = c(groups,unique(groups)) ## binary variables are not penalized by group lasso
+  ### in order to express 
+  
+  ret=list()
+  cat(nrow(ygl),"\n")
+  cat(nrow(Xgl),"\n")
+  
+  ret[["X"]]=cbind(Xgl,ygl)
+  ret[["groups"]]=groups
+  return(ret)
+}
+
 ## preds = predictions, y = true value
 negBinLogLikeLoss = function(preds=preds,y=y){
   ret = log(1+exp(-2*y*preds))
@@ -87,17 +163,17 @@ negative_gradient = function(y,preds,groups=NULL,target="binary",unbalanced=FALS
     preds0[preds0<0.00001]=0.00001 ## not allow very small divisions
     preds[preds<0.00001]=0.00001 ## not allow very small divisions
     
-    if(unbalanced){
-      
-      Iplus = as.numeric(y==1)
-      nplus = sum(Iplus)
-      Iminus = as.numeric(y==-1)
-      nminus = sum(Iminus)
-      ret = preds*((Iplus/nplus) + (Iminus/nminus))
-    }else{
-      ff = 0.5*log(preds/preds0)
-      ret = (2*y)/(1+exp(2*y*ff)) ## greedy function approximation, a gradient boosting machine, page 9
-    }
+    # if(unbalanced){
+    #   
+    #   Iplus = as.numeric(y==1)
+    #   nplus = sum(Iplus)
+    #   Iminus = as.numeric(y==-1)
+    #   nminus = sum(Iminus)
+    #   ret = preds*((Iplus/nplus) + (Iminus/nminus))
+    # }else{
+    ff = 0.5*log(preds/preds0)
+    ret = (2*y)/(1+exp(2*y*ff)) ## greedy function approximation, a gradient boosting machine, page 9
+  # }
     #####
     
   }else if(target=="regression"){
@@ -199,9 +275,11 @@ BoostingModel= function(model,rate) {
   
 }
 
-predict.BoostingModel = function(m,X,calibrate=TRUE,bestIt=NULL){
-  
-  rate=m$rate
+predict.BoostingModel = function(m,X,calibrate=TRUE,bestIt=NULL,rate=NULL){
+  if(is.null(rate)){
+    rate=m$rate  
+  }
+
   ## first, for each of the fitted sub models, create a prediction at X
   pred=rep(m$modelList[[1]],nrow(X)) ## fill with the initial guess
   if(is.null(bestIt)){
