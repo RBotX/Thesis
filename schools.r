@@ -62,8 +62,8 @@ for(l in 1:NUM_TESTS){
   test = data$data[data$testidx,]
   val = data$data[data$validx,]
   
-  mshared=TrainMultiTaskClassificationGradBoost(train,val=val,iter=iter,v=rate,groups=train[,"Family"],controls=rpart.control(maxdepth = 3,cp=0.0001),ridge.lambda=ridge.lambda,target="regression",treeType="rpart")
-  mshared2=TrainMultiTaskClassificationGradBoost2(train,val=val,iter=iter,v=rate,groups=train[,"Family"],controls=rpart.control(maxdepth = 3,cp=0.0001),ridge.lambda=ridge.lambda,target="regression",treeType="rpart")
+  mshared=TrainMultiTaskClassificationGradBoost(train,val=val,iter=iter,v=rate,groups=train[,"Family"],controls=rpart.control(),ridge.lambda=ridge.lambda,target="regression",treeType="rpart")
+  mshared2=TrainMultiTaskClassificationGradBoost2(train,val=val,iter=iter,v=rate,groups=train[,"Family"],controls=rpart.control(),ridge.lambda=ridge.lambda,target="regression",treeType="rpart")
   #mshared3=TrainMultiTaskClassificationGradBoost2(train,val=test,iter=iter,v=rate,groups=train[,"Family"],controls=rpart.control(maxdepth = 3,cp=0.0001),ridge.lambda=ridge.lambda,target="regression",fitCoef="norm2",treeType="rpart")
   
   perTaskModels=list()
@@ -73,7 +73,7 @@ for(l in 1:NUM_TESTS){
     cat("fam ",fam,"\n")
     tr = train[train[,"Family"]==fam,]
     m0 = TrainMultiTaskClassificationGradBoost(tr,groups = matrix(fam,nrow=nrow(tr),ncol=1),iter=100,v=rate,
-                                               controls=rpart.control(maxdepth = 3), ridge.lambda = ridge.lambda,target="regression")  
+                                               controls=rpart.control(), ridge.lambda = ridge.lambda,target="regression")  
     perTaskModels[[toString(fam)]]=m0
     logitModels[[toString(fam)]]= cv.glmnet(x=as.matrix(tr[,-which(colnames(tr) %in% c("Family","Label"))]),y=tr[,"Label"],family="gaussian",alpha=1,maxit=10000,nfolds=4, thresh=1E-4)
   }
@@ -81,7 +81,7 @@ for(l in 1:NUM_TESTS){
   ### train binary model, ignoring multi tasking:
   binaryData = train
   binaryData["Family"]=1
-  mbinary=TrainMultiTaskClassificationGradBoost(binaryData,iter=iter,v=rate,groups=matrix(1,nrow=nrow(binaryData),ncol=1),controls=rpart.control(maxdepth = 3),ridge.lambda=ridge.lambda,target="regression")  
+  mbinary=TrainMultiTaskClassificationGradBoost(binaryData,iter=iter,v=rate,groups=matrix(1,nrow=nrow(binaryData),ncol=1),controls=rpart.control(),ridge.lambda=ridge.lambda,target="regression")  
   mlogitbinary = cv.glmnet(x=as.matrix(binaryData[,-which(colnames(tr) %in% c("Family","Label"))]),y=binaryData[,"Label"],family="gaussian",alpha=1,maxit=10000,nfolds=4, thresh=1E-4)
     
   gplassotraindata = CreateGroupLassoDesignMatrix(train)

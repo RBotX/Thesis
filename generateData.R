@@ -10,6 +10,9 @@ source("helper.R")
 ### our boolean functino is, for example: x1 and X2 and X7 and X8 (or some other function, maybe less linear)
 ### we classify as 1 all cases when this is TRUE and 0 otherwise
 ### each family has a slightly different probability of Xi being 1. 
+outdir="PandoSimulationResults"
+dir.create(outdir,showWarnings = FALSE)
+
 boolfunc = function(x){
   
 
@@ -230,7 +233,6 @@ test = data$data[data$testidx,]
 val = data$data[data$validx,]
 mshared=TrainMultiTaskClassificationGradBoost(train,iter=iter,v=rate,valdata=val,groups=train[,"Family"],controls=controls,ridge.lambda=ridge.lambda,target="binary")
 mshared2=TrainMultiTaskClassificationGradBoost2(train,iter=iter,v=rate,groups=train[,"Family"],controls=controls,ridge.lambda=ridge.lambda,target="binary",treeType="rpart",valdata=val)
-#mshared3=Obo(train,valdata=val,iter=iter,v=rate,groups=train[,"Family"],controls,target="binary",treeType="rpart")
 perTaskModels=list()
 logitModels=list()
 for(fam in unique(train[,"Family"])){
@@ -337,7 +339,24 @@ for(fam in unique(test[,"Family"])){
   #print(xtables$`1`, table.placement="H")
 }
 ####################################################################################################
-  
+
+
+#### plot feature importances and save locally:
+plotExperimentResults(pandoModel = mshared,perTaskModels = perTaskModels,postfix = "NonLinear",signalVars = 1:11)
+
+# dff = FeatureImportance.BoostingModel(mshared$fam1) ### for pando, we can use only one family as they share the same tree structures 
+# PlotImp(dff,signalVars = 1:11,flip = TRUE)
+# 
+# dev.copy(png,filename=paste0(outdir,"/PandoFeatureImportanceNonLinear.png"))
+# dev.off
+# 
+# 
+# dff = PerTaskImportances(perTaskModels) ### for ptb
+# PlotImp(dff,signalVars = 1:11,flip = TRUE)
+# 
+# dev.copy(png,filename=paste0(outdir,"/PTBFeatureImportanceNonLinear.png"))
+# dev.off
+
 
 
 ###### LINEAR ########
@@ -461,6 +480,7 @@ for(fam in unique(test[,"Family"])){
 }
 ####################################################################################################
 
+plotExperimentResults(pandoModel = mshared,perTaskModels = perTaskModels,postfix = "Linear",signalVars = 1:5)
 
 
 
@@ -472,138 +492,35 @@ for(fam in unique(test[,"Family"])){
 
 
 
-
-
-
-
-
-
-
-
-plotImp2 = function(df,signalVars=c(), title="some title",  flip=FALSE, nfirstvar=30){
-  ### show all signal variables and all variables with importance in the first 95%
-  #signalRows = which(df[,"varname"] %in% c(paste0("X",signalVars)))
-  #importantVariables = which((df[,"value"]/max(df[,"value"]))>0.1)
-  #allRows = c(signalRows,importantVariables)
-  #df[,"value"]=df[,"value"]/sum(df[,"value"])
-  #colnames(df)=c("varname","value")
-  #df=df[order(-df[,"value"]),]
-  df <- base::transform(df, varname = reorder(varname, if(flip) value else -value))
-  #df = df[order(-df[,"value"]),]
-  df[,"Legend"]="noise"
-  df[df[,"varname"] %in% c(paste0("X",signalVars)),"Legend"]="signal"
-  group.colors <- c(noise = "#C67171", signal = "#7171C6") 
-  p3 = ggplot(head(df,n=nfirstvar), aes(varname, weight = value,fill=Legend)) + geom_bar()
-  #p3 = ggplot(df,n=nfirstvar), aes(varname, weight = value,fill=Legend)) + geom_bar()
-  p3 = p3+scale_fill_manual(values=group.colors)
-  p3 = p3 + labs(title = title)
-  p3 = p3+ylab("split gain")
-  
-  #p3=p3+thm
-  if(flip){
-    p3=p3+coord_flip()
-  }
-  p3  
-  
-}
-
-
-
-
-
-
-
-
-
-### normalized versions:
-dffnorm=dff
-dffnorm[,"value"]=dffnorm[,"value"]/sum(dffnorm[,"value"])
-colnames(dffnorm)=c("varname","value")
-#dffnorm=dffnorm[order(-dffnorm[,"value"]),]
-dffnorm <- base::transform(dffnorm, varname = reorder(varname, -value))
-dffnorm[,"Legend"]="noise"
-dffnorm[dffnorm[,"varname"] %in% c(paste0("X",1:11)),"Legend"]="signal"
-group.colors <- c(noise = "#C67171", signal = "#7171C6") 
-p3 = ggplot(head(dffnorm,n=20), aes(varname, weight = value,fill=Legend)) + geom_bar()
-p3 = p3+scale_fill_manual(values=group.colors)
-p3 = p3 + labs(title = paste("cumm. normalized variable importance across tasks - PANDO"))
-p3 = p3+ylab("split gain")
-
-p3=p3+thm
-p3
-#rpart.plot(mshared$fam1[["2"]]$treeFit)  ## displaying a tree by mshared
-#rpart.plot(mshared$fam1[["2"]]$treeFit)  ## displaying a tree by mshared
-
-### normalized versions:
-
-dff2norm=dff2
-dff2norm[,"value"]=dff2norm[,"value"]/sum(dff2norm[,"value"])
-colnames(dff2norm)=c("varname","value")
-#dff2norm=dff2norm[order(-dff2norm[,"value"]),]
-dff2norm <- base::transform(dff2norm, varname = reorder(varname, -value))
-dff2norm[,"Legend"]="noise"
-dff2norm[dff2norm[,"varname"] %in% c(paste0("X",1:11)),"Legend"]="signal"
-group.colors <- c(noise = "#C67171", signal = "#7171C6") 
-#p4 = ggplot(head(dff2norm,n=1000), aes(varname, weight = value,fill=Legend)) + geom_bar()
-p4 = ggplot(dff2norm[dff2norm[,"value"]>0.0011], aes(varname, weight = value,fill=Legend)) + geom_bar()
-p4 = p4+scale_fill_manual(values=group.colors)
-p4 = p4 + labs(title = paste("cumm. normalized variable importance across tasks - PTB"))
-p4 = p4+ylab("split gain")
-
-p4=p4+thm
-p4
-
-
-dff3norm=dff3
-dff3norm[,"value"]=dff3norm[,"value"]/sum(dff3norm[,"value"])
-colnames(dff3norm)=c("varname","value")
-#dff3norm=dff3norm[order(-dff3norm[,"value"]),]
-dff3norm <- base::transform(dff3norm, varname = reorder(varname, -value))
-dff3norm[,"color"]="#333BFF"
-dff3norm[dff3norm[,"varname"] %in% c(paste0("X",1:5)),"color"]="#CC6600"
-
-#p = ggplot(dff, aes(varname, weight = value,fill=color)) + geom_bar()
-p5 = ggplot(head(dff3norm,n=20), aes(varname, weight = value,fill=color)) + geom_bar()
-p5 = p5 + labs(title = paste("cumm. normalized variable importance across tasks - BB"))
-p5 = p5+ylab("split gain")
-
-p5=p5+thm
-p5
-
-
-
-
-
-
-dd = matrix(coef(mgplasso))
-dd=matrix(dd)
-dd=data.frame(matrix(dd[-1,]))
-dd[,"varname"]=paste0(paste0("T",rep(1:5,each=26),"_"),rep(paste0("X",1:26),5))
-colnames(dd)=c("value","varname")
-dd <- dd[order(-abs(dd[,"value"])),]
-
-pgp = ggplot(head(dd,n=40), aes(varname, weight = value)) + geom_bar()
-pgp = pgp + labs(title = paste("var importance gplasso"))
-pgp = pgp+ylab("linear coef")
-
-pgp=pgp+thm
-pgp + coord_flip()
-pgp
-
-
-library(rpart.plot)
-bdata=binaryData[,-ncol(binaryData)]
-v=.1 
-fit=rpart(Label~.,data=bdata,controls=controls)
-yp=predict(fit)
-df$yr=df$y - v*yp
-YP=v*yp
-for(t in 1:100){
-  fit=rpart(yr~x,data=df)
-  yp=predict(fit,newdata=df)
-  df$yr=df$yr - v*yp
-  YP=cbind(YP,v*yp)
-}
+# dd = matrix(coef(mgplasso))
+# dd=matrix(dd)
+# dd=data.frame(matrix(dd[-1,]))
+# dd[,"varname"]=paste0(paste0("T",rep(1:5,each=26),"_"),rep(paste0("X",1:26),5))
+# colnames(dd)=c("value","varname")
+# dd <- dd[order(-abs(dd[,"value"])),]
+# 
+# pgp = ggplot(head(dd,n=40), aes(varname, weight = value)) + geom_bar()
+# pgp = pgp + labs(title = paste("var importance gplasso"))
+# pgp = pgp+ylab("linear coef")
+# 
+# pgp=pgp+thm
+# pgp + coord_flip()
+# pgp
+# 
+# 
+# library(rpart.plot)
+# bdata=binaryData[,-ncol(binaryData)]
+# v=.1 
+# fit=rpart(Label~.,data=bdata,controls=controls)
+# yp=predict(fit)
+# df$yr=df$y - v*yp
+# YP=v*yp
+# for(t in 1:100){
+#   fit=rpart(yr~x,data=df)
+#   yp=predict(fit,newdata=df)
+#   df$yr=df$yr - v*yp
+#   YP=cbind(YP,v*yp)
+# }
 
 
 
