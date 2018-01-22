@@ -1,12 +1,12 @@
 source("helper.R")
 
-
+### fit a coefficient per tree per task. all tasks share the same trees with different coefficients
 TrainMultiTaskClassificationGradBoost2 = function(df,valdata=NULL,earlystopping=100,iter=3,v=1,groups,controls,ridge.lambda,target="binary",df.val=NULL,fitCoef="ls",treeType="rpart",unbalanced=FALSE){
-  
   scoreType = if(target == "binary") "auc" else "rmse"
   log=list()
   log[["tscore"]]=c()
   log[["vscore"]]=c()
+  log[["vpred"]]=c()
   families = unique(groups)[unique(groups)!="clean"]
   data = df  
   finalModel=list()
@@ -30,7 +30,7 @@ TrainMultiTaskClassificationGradBoost2 = function(df,valdata=NULL,earlystopping=
     
   }
   
-  #numFamilies = length(unique(groups))-1 ## clean doesn't count as family
+  
   numFamilies = length(unique(groups)) ## clean doesn't count as family
   finalModel[["rate"]]=v
   for(fam in families){
@@ -40,7 +40,7 @@ TrainMultiTaskClassificationGradBoost2 = function(df,valdata=NULL,earlystopping=
   }
   bestScoreRound=1
   for(t in 2:iter){
-    if((isval)&(t-bestScoreRound > earlystopping)){
+    if((isval)&(t-bestScoreRound > earlystopping)&(earlystopping>0)){
       cat("EARLY STOPPING AT ",t," best iteration was ",bestScoreRound," with validation score ",bestVscore,"\n")
       break
     }
@@ -55,6 +55,7 @@ TrainMultiTaskClassificationGradBoost2 = function(df,valdata=NULL,earlystopping=
         }
         
         log[["vscore"]]=c(log[["vscore"]],vscore)
+        log[["vpred"]]=cbind(log[["vpred"]],ypvalscore)
     }
   
     
@@ -86,9 +87,8 @@ TrainMultiTaskClassificationGradBoost2 = function(df,valdata=NULL,earlystopping=
     ridgeRegX = NULL
     ridgeRegy = NULL
     for(fam in families){
-      ###  fit a coefficient per entire tree
+      ###  fit a coefficient per entire tree per family
       famx = data[(data[,"Family"]==fam),-which(colnames(data) %in% c("Label","Family"))]
-      
       if(treeType=="rpart"){
         famX=predict(fit,famx)  
       }else{
@@ -203,5 +203,6 @@ TrainMultiTaskClassificationGradBoost2 = function(df,valdata=NULL,earlystopping=
   }
   ret[["log"]]=log
   ret[["bestScoreRound"]]=if(isval) bestScoreRound else iter
+  ret[["rpartcontrols"]]=controls
   return(ret)  
 }

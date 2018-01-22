@@ -33,6 +33,8 @@ for(l in 1:NUM_TESTS){
   cat("train-test split number ",l,"\n")
   set.seed(l)
   testidx = c()
+  validx=c()
+  trainidx=c()
   for(fam in unique(schools2[,"Family"])){
     #http://aima.eecs.berkeley.edu/~russell/classes/cs294/f05/papers/evgeniou+al-2005.pdf they take 75-25 train-test split, cited 669 times
     testidx = c(testidx, sample(which(schools2[,"Family"]==fam),floor(length(which(schools2[,"Family"]==fam))*0.3) ))
@@ -72,24 +74,27 @@ for(l in 1:NUM_TESTS){
     
     cat("fam ",fam,"\n")
     tr = train[train[,"Family"]==fam,]
-    m0 = TrainMultiTaskClassificationGradBoost(tr,groups = matrix(fam,nrow=nrow(tr),ncol=1),iter=100,v=rate,
+    tr.val = val[val[,"Family"]==fam,]
+    m0 = TrainMultiTaskClassificationGradBoost(tr,val=tr.val,groups = matrix(fam,nrow=nrow(tr),ncol=1),iter=iter,v=rate,
                                                controls=rpart.control(), ridge.lambda = ridge.lambda,target="regression")  
     perTaskModels[[toString(fam)]]=m0
-    logitModels[[toString(fam)]]= cv.glmnet(x=as.matrix(tr[,-which(colnames(tr) %in% c("Family","Label"))]),y=tr[,"Label"],family="gaussian",alpha=1,maxit=10000,nfolds=4, thresh=1E-4)
+    logitModels[[toString(fam)]]= cv.glmnet(x=as.matrix(rbind(tr,tr.val)[,-which(colnames(tr) %in% c("Family","Label"))]),y=rbind(tr,tr.val)[,"Label"],family="gaussian",alpha=1,maxit=10000,nfolds=4, thresh=1E-4)
   }
   
   ### train binary model, ignoring multi tasking:
   binaryData = train
-  binaryData["Family"]=1
-  mbinary=TrainMultiTaskClassificationGradBoost(binaryData,iter=iter,v=rate,groups=matrix(1,nrow=nrow(binaryData),ncol=1),controls=rpart.control(),ridge.lambda=ridge.lambda,target="regression")  
-  mlogitbinary = cv.glmnet(x=as.matrix(binaryData[,-which(colnames(tr) %in% c("Family","Label"))]),y=binaryData[,"Label"],family="gaussian",alpha=1,maxit=10000,nfolds=4, thresh=1E-4)
+  binaryData["Family"]="1"
+  binaryVal = val
+  binaryVal["Family"]="1"
+  mbinary=TrainMultiTaskClassificationGradBoost(binaryData,val=binaryVal,iter=iter,v=rate,groups=matrix("1",nrow=nrow(binaryData),ncol=1),controls=rpart.control(),ridge.lambda=ridge.lambda,target="regression")  
+  mlogitbinary = cv.glmnet(x=as.matrix(rbind(binaryData,binaryVal)[,-which(colnames(tr) %in% c("Family","Label"))]),y=rbind(binaryData,binaryVal)[,"Label"],family="gaussian",alpha=1,maxit=10000,nfolds=4, thresh=1E-4)
     
-  gplassotraindata = CreateGroupLassoDesignMatrix(train)
+  gplassotraindata = CreateGroupLassoDesignMatrix(rbind(train,val))
   gplassoX = (gplassotraindata$X)[,-ncol(gplassotraindata$X)]
   gplassoy =  (gplassotraindata$X)[,ncol(gplassotraindata$X)]
   #gplassoy[gplassoy==-1]=0
 
-  mgplasso = cv.grpreg(gplassoX, gplassoy, group=gplassotraindata$groups, nfolds=2, maxit=10000,seed=777,family="gaussian",trace=TRUE)
+  mgplasso = cv.grpreg(gplassoX, gplassoy, group=gplassotraindata$groups, nfolds=2, maxit=10000,seed=777,family="gaussian",trace=TRUE,penalty="grLasso")
 
   gplassotestdata = CreateGroupLassoDesignMatrix(test)
   gplassotestX = (gplassotestdata$X)[,-ncol(gplassotestdata$X)]
@@ -206,7 +211,7 @@ for(m in colnames(finalresults2)){
 }
 
 
-save.image("schools.Rdata")
+#save.image("schools.Rdata")
 
 
 

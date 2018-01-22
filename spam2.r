@@ -15,10 +15,6 @@ schools2=read.csv("spamtfidf.csv",stringsAsFactors = FALSE) # with sparsity fact
 schools2=schools2[,-1]
 schools2[schools2[,"Label"]==0,"Label"]=-1
 
-
-
-
-
 alltests=c()
 NUM_TESTS=1
 for(l in 1:NUM_TESTS){
@@ -51,9 +47,11 @@ for(l in 1:NUM_TESTS){
   test = data$data[data$testidx,]
   val = data$data[data$validx,]
   cat("starting pando\n")
-  mshared=TrainMultiTaskClassificationGradBoost(train,iter=iter,v=rate,groups=train[,"Family"],controls=rpart.control(),ridge.lambda=ridge.lambda,target="binary",valdata=val,fitTreeCoef = FALSE)
+  #mshared=TrainMultiTaskClassificationGradBoost(train,iter=iter,v=rate,groups=train[,"Family"],controls=rpart.control(),ridge.lambda=ridge.lambda,target="binary",valdata=val,fitTreeCoef = FALSE)
+  mshared=TunePando(TrainMultiTaskClassificationGradBoost,train,val)
   cat("starting pando2\n")
-  mshared2=TrainMultiTaskClassificationGradBoost2(train,iter=iter,v=rate,groups=train[,"Family"],controls=rpart.control(),ridge.lambda=ridge.lambda,target="binary",treeType="rpart",valdata=val)
+  #mshared2=TrainMultiTaskClassificationGradBoost2(train,iter=iter,v=rate,groups=train[,"Family"],controls=rpart.control(),ridge.lambda=ridge.lambda,target="binary",treeType="rpart",valdata=val)
+  mshared2=TunePando(TrainMultiTaskClassificationGradBoost2,train,val)
   cat("starting per task models\n")
 
   perTaskModels=list()
@@ -63,8 +61,12 @@ for(l in 1:NUM_TESTS){
     cat("fam ",fam,"\n")
     tr = train[train[,"Family"]==fam,]
     tr.val = val[val[,"Family"]==fam,]
-    m0 = TrainMultiTaskClassificationGradBoost(tr,valdata=tr.val,groups = matrix(fam,nrow=nrow(tr),ncol=1),iter=iter,v=0.01,
-                                               controls=rpart.control(), ridge.lambda = ridge.lambda,target="binary")  
+#    m0 = TrainMultiTaskClassificationGradBoost(tr,valdata=tr.val,groups = matrix(fam,nrow=nrow(tr),ncol=1),iter=iter,v=0.01,
+#                                               controls=rpart.control(), ridge.lambda = ridge.lambda,target="binary") 
+    m0=TunePando(TrainMultiTaskClassificationGradBoost,tr,tr.val)
+    # m0 = TrainMultiTaskClassificationGradBoost(tr,valdata=tr.val,groups = matrix(fam,nrow=nrow(tr),ncol=1),iter=iter,v=0.01,
+    #                                            controls=rpart.control(), ridge.lambda = ridge.lambda,target="binary")  
+    
     perTaskModels[[toString(fam)]]=m0
     logitModels[[toString(fam)]]= cv.glmnet(x=as.matrix(rbind(tr,tr.val)[,-which(colnames(tr) %in% c("Family","Label"))]),y=tr[,"Label"],family="binomial",alpha=1,maxit=10000,nfolds=3, thresh=1E-4)
   }
@@ -74,7 +76,8 @@ for(l in 1:NUM_TESTS){
   binaryData["Family"]="1"
   binaryVal = val
   binaryVal["Family"]="1"
-  mbinary=TrainMultiTaskClassificationGradBoost(binaryData,iter=iter,v=rate,groups=matrix(1,nrow=nrow(binaryData),ncol=1),controls=rpart.control(),ridge.lambda=ridge.lambda,target="binary",valdata=binaryVal)  
+  #mbinary=TrainMultiTaskClassificationGradBoost(binaryData,iter=iter,v=rate,groups=matrix(1,nrow=nrow(binaryData),ncol=1),controls=rpart.control(),ridge.lambda=ridge.lambda,target="binary",valdata=binaryVal)
+  mbinary=TunePando(TrainMultiTaskClassificationGradBoost,binaryData,binaryVal)
   mlogitbinary = cv.glmnet(x=as.matrix(rbind(binaryData,binaryVal)[,-which(colnames(tr) %in% c("Family","Label"))]),y=binaryData[,"Label"],family="binomial",alpha=1,maxit=10000,nfolds=3, thresh=1E-4)
   
   gplassotraindata = CreateGroupLassoDesignMatrix(rbind(train,val))

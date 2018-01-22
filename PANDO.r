@@ -1,12 +1,12 @@
 source("helper.R")
 
-
+### fit leaf scores per task
 TrainMultiTaskClassificationGradBoost = function(df,valdata=NULL,earlystopping=100,iter=3,v=1,groups,controls,ridge.lambda,target="binary",treeType="rpart",fitTreeCoef=FALSE,unbalanced=FALSE){
   scoreType = if(target == "binary") "auc" else "rmse"
   log=list()
   log[["tscore"]]=c()
   log[["vscore"]]=c()
-  
+  log[["vpred"]]=c()
   families = unique(groups)[unique(groups)!="clean"]
   data = df  
   finalModel=list()
@@ -23,25 +23,19 @@ TrainMultiTaskClassificationGradBoost = function(df,valdata=NULL,earlystopping=1
   if(isval){
     ypval = rep(preds,nrow(valdata)) ## initial guess without learning rate?
     ypvalscore= ypval
-    #bestVscore=ypvalscore
     bestVscore=scorefunc(label=valdata$Label,preds=ypvalscore,scoreType=scoreType)
-    
-    
   }
   
-  #numFamilies = length(unique(groups))-1 ## clean doesn't count as family
   numFamilies = length(unique(groups)) ## clean doesn't count as family
   finalModel[["rate"]]=v
   for(fam in families){
     finalModel[[toString(fam)]]=list()
     finalModel[[toString(fam)]][[1]] = preds
-    
-    
   }
   bestScoreRound=1
   for(t in 2:iter){
     
-    if((isval)&(t-bestScoreRound > earlystopping)){
+    if((isval)&(t-bestScoreRound > earlystopping)&(earlystopping>-1)){
       cat("EARLY STOPPING AT ",t," best iteration was ",bestScoreRound," with validation score ",bestVscore,"\n")
       break
     }
@@ -54,13 +48,14 @@ TrainMultiTaskClassificationGradBoost = function(df,valdata=NULL,earlystopping=1
     log[["tscore"]]=c(log[["tscore"]],tscore)
     if(isval){
       vscore = scorefunc(label=valdata$Label,preds=ypvalscore,scoreType=scoreType)
+      
       if(((vscore > bestVscore)&(scoreType == "auc"))||((vscore < bestVscore)&(scoreType == "rmse"))){
         bestVscore = vscore
         
         bestScoreRound=t
       }
       log[["vscore"]]=c(log[["vscore"]],vscore)
-      
+      log[["vpred"]]=cbind(log[["vpred"]],ypvalscore)
     }
     
     
@@ -115,19 +110,9 @@ TrainMultiTaskClassificationGradBoost = function(df,valdata=NULL,earlystopping=1
           next
         }
         
-        #X = predict(fit,data[(samplesInLeaf)&(data[,"Family"]==fam),-which(colnames(data) %in% c("Label","Family"))]) ### predictions for this family and clean in this leaf
-        #X = as.matrix(X,nrow=length(x),ncol=1)
-        
-        
-        #y = negative_gradient(y=(data$Label)[(samplesInLeaf)&(data[,"Family"]==fam)],preds=X+yp[(samplesInLeaf)&(data[,"Family"]==fam)]) ### pseudo responses for this family and clean in this leaf
         y = pr[(samplesInLeaf)&(data[,"Family"]==fam)]
         y = matrix(y,nrow=length(y),ncol=1)
-        
-        
         X = matrix(1,nrow=nrow(y),ncol=1) ### 1 for each observation in this leaf for this family
-        
-        
-        
         if(PadColsToLeft > 0){
           X = cbind(matrix(0,nrow=nrow(X),ncol=PadColsToLeft),X)
         }
@@ -250,7 +235,8 @@ TrainMultiTaskClassificationGradBoost = function(df,valdata=NULL,earlystopping=1
     
     yp = yp + v*famPreds
     if(isval){
-      ypval = ypval + v*valfamPreds
+      ypval = ypval + v*valfamPreds ## update raw val scores
+      ### save predictions for 
     }
     
     if(target=="binary"){ ## calibrate predictions if binary
@@ -279,6 +265,7 @@ TrainMultiTaskClassificationGradBoost = function(df,valdata=NULL,earlystopping=1
   ret[["rate"]]=v
   ret[["log"]]=log
   ret[["bestScoreRound"]]=if(isval) bestScoreRound else iter
+  ret[["rpartcontrols"]]=controls
   return(ret)  
   
 }

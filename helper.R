@@ -9,7 +9,52 @@ library(ggplot2)
 library(reshape2)
 library(purge)
 
-workdir=
+##tune a pando function with cross validation over the traindata:
+## tuning rpart maxdepth,cp and num of iterations
+## first tune tree params: maxdepth and cp on a fixed, probably samll number of iterations, then tune number of iterations
+## for now we tune number of iterations on a validation set
+TunePando = function(pandofunc,traindata,valdata,target="binary",maxiter=1000,cv=5){
+  traindata = traindata[sample(nrow(traindata)),] ## shuffle 
+  rate=0.1 # start with high leanring rate to tune the other parameters
+  folds = createFolds(1:nrow(traindata),k=cv)
+  iter=300
+  grid = expand.grid(maxdepth=c(3,4,5,7,10),cp=c(0.01, 0.005))
+  grid = cbind(grid,rep(NA,nrow(grid)))
+  colnames(grid)[ncol(grid)]="bestCvScore"
+  grid = cbind(grid,rep(NA,nrow(grid)))
+  colnames(grid)[ncol(grid)]="bestCvIt"
+  for(i in 1:nrow(grid)){
+    cvpredictions = matrix(NA,nrow(traindata),ncol=iter-1) ### CV predictions per iterations 
+    foldnum=0
+    for(fold in folds){
+      foldnum = foldnum+1
+      train = traindata[fold,] ## train on this
+      valdata = traindata[-fold,] ## predict on this
+      maxdepth=grid[i,"maxdepth"]
+      cp=grid[i,"cp"]
+
+      controls = rpart.control(maxdepth = maxdepth,cp=cp)
+      cat("fitting fold no ",foldnum ,"with params maxdepth=",maxdepth," cp=",cp,"\n")
+      mshared=pandofunc(train,iter=iter,v=rate,groups=train[,"Family"],controls=controls,ridge.lambda=ridge.lambda,target="binary",valdata=valdata,earlystopping = -1)      
+      #cvpredictions[-fold] = mshared$log$vpred[,iter-1] ## the predictions on the validation set after all the iteartions
+      cvpredictions[-fold,1:(iter-1)] = mshared$log$vpred ## all predictions for this fold
+    }
+    aucs=apply(cvpredictions,2,function(x){as.numeric(pROC::auc(pROC::roc(as.factor(traindata[,"Label"]),as.numeric(x))))})
+    bestCvIt = which(aucs==max(aucs))
+    grid[i,"bestCvScore"]=max(aucs)
+    grid[i,"bestCvIt"]=bestCvIt
+  }
+  bestGridIdx = which(grid[,"bestCvScore"]==max(grid[,"bestCvScore"]))
+  bestParams = grid[bestGridIdx,]
+  cat("found best parameters to be: maxdepth=",bestParams[,"maxdepth"], " cp=",bestParams[,"cp"],"\n")
+  controls = rpart.control(maxdepth = bestParams[,"maxdepth"],cp=bestParams[,"cp"])
+  ## now we can use the validation set to determine the number of iterations
+  rate=0.01
+  iter=1000
+  cat("fitting pando with best parmaeter\n")
+  mshared=pandofunc(train,iter=iter,v=rate,groups=train[,"Family"],controls=controls,ridge.lambda=ridge.lambda,target="binary",valdata=valdata,fitTreeCoef = FALSE,earlystopping = 100)      
+  return(mshared)
+}
 #### plot feature importances and save locally:
 plotExperimentResults = function(pandoModel,perTaskModels,outdir="", postfix="",signalVars=c()){
   if(outdir==""){

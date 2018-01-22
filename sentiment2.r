@@ -45,7 +45,7 @@ for(l in 1:NUM_TESTS){
   data[["trainidx"]]=trainidx
   data[["validx"]]=validx
   
-  controls=rpart.control(cp=0.001,maxdepth = 4)
+  controls=rpart.control()
   iter=100
   rate=0.01
   ridge.lambda=0.0001  
