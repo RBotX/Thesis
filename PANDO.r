@@ -1,7 +1,7 @@
 source("helper.R")
 
 ### fit leaf scores per task
-TrainMultiTaskClassificationGradBoost = function(df,valdata=NULL,earlystopping=100,iter=3,v=1,groups,controls,ridge.lambda,target="binary",treeType="rpart",fitTreeCoef=FALSE,unbalanced=FALSE){
+TrainMultiTaskClassificationGradBoost = function(df,valdata=NULL,earlystopping=100,iter=3,v=1,groups,controls,target="binary",treeType="rpart",fitCoef=NULL,fitTreeCoef=FALSE,unbalanced=FALSE){
   scoreType = if(target == "binary") "auc" else "rmse"
   log=list()
   log[["tscore"]]=c()
@@ -101,6 +101,7 @@ TrainMultiTaskClassificationGradBoost = function(df,valdata=NULL,earlystopping=1
       ridgeRegy = matrix(nrow=0,ncol=1)
       PadColsToLeft = 0
       PadColsToRight = numFamilies-1
+      
       for(fam in families){
         ## check if this family has results in this leaf, if not, skip
         #cat(fam," ",length(which((samplesInLeaf)&(data[,"Family"]==fam))) == 0,"\n")
@@ -161,15 +162,16 @@ TrainMultiTaskClassificationGradBoost = function(df,valdata=NULL,earlystopping=1
       PerLeafData = cbind(PerLeafData,y)
       #cat("before ridge target is ",head(y),"***********\n")
       
-      lambdas = 2^seq(3, -10, by = -.1)
+      lambdas = 2^seq(6, -10, by = -.1)
       
       useglmnet=FALSE
+      
       if(useglmnet){
-        m=cv.glmnet(as.matrix(PerLeafData[,-which(colnames(PerLeafData) == "y")]),as.matrix(PerLeafData[,"y"]), alpha = 0, lambda = lambdas,intercept=FALSE,nfolds=3,standardize=T)  
+        m=cv.glmnet(as.matrix(PerLeafData[,-which(colnames(PerLeafData) == "y")]),as.matrix(PerLeafData[,"y"]), alpha = 0, nlambda = 100,intercept=FALSE,nfolds=3,standardize=FALSE)  
         leafCoefs = coef(m,s="lambda.min")
         fittedFamilies = rownames(leafCoefs)[-1]
-        leafCoefs = data.frame(as.matrix(leafCoefs))[-1,]
-        leafCoefs = setNames(leafCoefs,fittedFamilies)
+        leafCoefs = as.data.frame(as.matrix(leafCoefs))[-1,]
+        names(leafCoefs) = fittedFamilies
         
       }else{
         m = lm.ridge(y~.-1,data = PerLeafData,lambda=lambdas) 

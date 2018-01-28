@@ -1,7 +1,7 @@
 source("helper.R")
 
 ### fit a coefficient per tree per task. all tasks share the same trees with different coefficients
-TrainMultiTaskClassificationGradBoost2 = function(df,valdata=NULL,earlystopping=100,iter=3,v=1,groups,controls,ridge.lambda,target="binary",df.val=NULL,fitCoef="ls",treeType="rpart",unbalanced=FALSE){
+TrainMultiTaskClassificationGradBoost2 = function(df,valdata=NULL,earlystopping=100,iter=3,v=1,groups,controls,target="binary",fitCoef="ridge",treeType="rpart",unbalanced=FALSE){
   scoreType = if(target == "binary") "auc" else "rmse"
   log=list()
   log[["tscore"]]=c()
@@ -21,15 +21,10 @@ TrainMultiTaskClassificationGradBoost2 = function(df,valdata=NULL,earlystopping=
   yp = rep(preds,nrow(data)) ## initial guess without learning rate?
   ypscore=yp
   if(isval){
-    
     ypval = rep(preds,nrow(valdata)) ## initial guess without learning rate?
     ypvalscore= ypval
-    #bestVscore=ypvalscore
     bestVscore=scorefunc(label=valdata$Label,preds=ypvalscore,scoreType=scoreType)
-    
-    
   }
-  
   
   numFamilies = length(unique(groups)) ## clean doesn't count as family
   finalModel[["rate"]]=v
@@ -39,7 +34,9 @@ TrainMultiTaskClassificationGradBoost2 = function(df,valdata=NULL,earlystopping=
     
   }
   bestScoreRound=1
-  for(t in 2:iter){
+  t=1
+  while(t<iter){
+    t=t+1
     if((isval)&(t-bestScoreRound > earlystopping)&(earlystopping>0)){
       cat("EARLY STOPPING AT ",t," best iteration was ",bestScoreRound," with validation score ",bestVscore,"\n")
       break
@@ -83,77 +80,91 @@ TrainMultiTaskClassificationGradBoost2 = function(df,valdata=NULL,earlystopping=
       fit=ctree(y~.,data=data.frame(x=data[,-which(colnames(data) %in% c("Label","Family"))],y=pr),control=controls,cores=3)  
     }
     
-    
     ridgeRegX = NULL
     ridgeRegy = NULL
-    for(fam in families){
-      ###  fit a coefficient per entire tree per family
-      famx = data[(data[,"Family"]==fam),-which(colnames(data) %in% c("Label","Family"))]
-      if(treeType=="rpart"){
-        famX=predict(fit,famx)  
-      }else{
-        famX=predict(fit,data.frame(x=famx))  
-      }
-      
-      famy = pr[(data[,"Family"]==fam)]
-      lmdf = matrix(ncol=2,nrow=length(famX))
-      lmdf[,1]=as.matrix(famX,ncol=1)
-      lmdf[,2]=as.matrix(famy,ncol=1)
-      colnames(lmdf)=c("x","y")
-      
-      lmdf = data.frame(lmdf)
-      if(!is.null(ridgeRegX)){
-        newx = lmdf[,"x"]
-        newx = rbind(matrix(0,nrow=nrow(ridgeRegX),ncol=1),matrix(newx,ncol=1))
-        newy = matrix(lmdf[,"y"],ncol=1)
-        ridgeRegX = rbind(ridgeRegX,matrix(0,ncol = ncol(ridgeRegX),nrow=nrow(lmdf)))
-        ridgeRegX = cbind(ridgeRegX,newx)
-        ridgeRegy = rbind(ridgeRegy,newy)
-      }else{
-        ridgeRegX = matrix(lmdf[,"x"],ncol=1)
-        ridgeRegy = matrix(lmdf[,"y"],ncol=1)
-      }
-      
-      
-      mm = lm(y~x -1,data=lmdf)
-      
-      fittedCoef = as.numeric(coef(mm)[1])
-      if(is.na(fittedCoef)){
-        fittedCoef=1
-      }
-      fittedIntercept = 0
-      
-      if(fitCoef == "obo"){
-        fittedCoef = mean(negative_gradient(lmdf[,"y"],lmdf[,"x"],target)) ## like in obozinski 
-      }
-
-      finalModel[[toString(fam)]][[t]] = TreeWithCoef(fit,fittedCoef,fittedIntercept,treeType=treeType)
-      
-    }
-    ridgeReg = cbind(ridgeRegX,ridgeRegy)
-    ridgeReg=data.frame(ridgeReg)
-    colnames(ridgeReg)=c(families,"y")
-    
-    if(fitCoef == "ridge"){
-      useglmnet=FALSE
-      lambdas = 2^seq(3, -10, by = -.1)
-      if(useglmnet){
-        mm=cv.glmnet(as.matrix(ridgeReg[,-which(colnames(ridgeReg) == "y")]),as.matrix(ridgeReg[,"y"]), alpha = 0, lambda = lambdas,intercept=FALSE,nfolds=3,standardize=T)          
-        coefs =coef(mm,s="lambda.min")
-        coefs = data.frame(as.matrix(coefs)[-1,])[,1]
-        
-      }else{
-        m = lm.ridge(y~.-1,data = ridgeReg,lambda=lambdas) 
-        whichIsBest <- which.min(m$GCV) 
-        coefs = coef(m)[whichIsBest,]
-      }
-      names(coefs)=families
+    if(fitCoef=="ridge" | fitCoef=="obo"){
       for(fam in families){
-        fittedCoef =as.numeric(coefs[fam]) # first coefficient is intercept (which is empty in this case)
-        fittedIntercept=0 ### fitting without intercept
-        finalModel[[fam]][[t]] = TreeWithCoef(fit,fittedCoef,fittedIntercept,treeType = treeType)
+        ###  fit a coefficient per entire tree per family
+        
+        
+          famx = data[(data[,"Family"]==fam),-which(colnames(data) %in% c("Label","Family"))]
+          if(treeType=="rpart"){
+            famX=predict(fit,famx)  
+          }else{
+            famX=predict(fit,data.frame(x=famx))  
+          }
+          famy = pr[(data[,"Family"]==fam)]
+          lmdf = matrix(ncol=2,nrow=length(famX))
+          lmdf[,1]=as.matrix(famX,ncol=1)
+          lmdf[,2]=as.matrix(famy,ncol=1)
+          colnames(lmdf)=c("x","y")
+          
+          lmdf = data.frame(lmdf)
+          if(!is.null(ridgeRegX)){
+            newx = lmdf[,"x"]
+            newx = rbind(matrix(0,nrow=nrow(ridgeRegX),ncol=1),matrix(newx,ncol=1))
+            newy = matrix(lmdf[,"y"],ncol=1)
+            ridgeRegX = rbind(ridgeRegX,matrix(0,ncol = ncol(ridgeRegX),nrow=nrow(lmdf)))
+            ridgeRegX = cbind(ridgeRegX,newx)
+            ridgeRegy = rbind(ridgeRegy,newy)
+          }else{
+            ridgeRegX = matrix(lmdf[,"x"],ncol=1)
+            ridgeRegy = matrix(lmdf[,"y"],ncol=1)
+          }
+          
+          ridgeReg = cbind(ridgeRegX,ridgeRegy)
         }
-    }
+        ridgeReg=data.frame(ridgeReg)
+        colnames(ridgeReg)=c(families,"y")
+  
+        useglmnet=FALSE
+        lambdas = 2^seq(6, -10, by = -.1)
+        if(useglmnet){
+          ridgeReg = cbind(ridgeRegX,ridgeRegy)
+          ridgeReg=data.frame(ridgeReg)
+          colnames(ridgeReg)=c(families,"y")
+          
+          mm=cv.glmnet(as.matrix(ridgeReg[,-which(colnames(ridgeReg) == "y")]),as.matrix(ridgeReg[,"y"]), alpha = 0, nlambda = 100,intercept=FALSE,nfolds=10,standardize=T)          
+          coefs =coef(mm,s="lambda.min")
+          coefs = data.frame(as.matrix(coefs)[-1,])[,1]
+          
+        }else{
+          m = lm.ridge(y~.-1,data = ridgeReg,lambda=lambdas) 
+          whichIsBest <- which.min(m$GCV) 
+          coefs = coef(m)[whichIsBest,]
+        }
+        names(coefs)=families
+      }
+      if(fitCoef == "obo"){        
+        grad=-negative_gradient(lmdf[,"y"],lmdf[,"x"],target) ## the overall gradient
+        for(fam in families){
+          gradpertask=c(gradpertask,mean(grad[(data[,"Family"]==fam)])) ## gradient per task
+        }
+        names(gradpertask)=families
+        gradnorm = sqrt(sum(gradpertask**2)) ## norm of the gradient per task vector
+        oboceofs = -gradpertask/gradnorm ## obozinski coefficient
+      }
+    
+      for(fam in families){
+        if(fitCoef == "obo"){
+          as.numeric(obocoefs[fam])
+        }
+        
+        if(fitCoef == "nocoef"){
+          fittedCoef=1 ## standard boosting
+        }
+        
+        if(fitCoef == "ridge"){
+          fittedCoef = as.numeric(coefs[fam])          
+        }
+        
+        fittedIntercept = 0
+        finalModel[[toString(fam)]][[t]] = TreeWithCoef(fit,fittedCoef,fittedIntercept,treeType=treeType)
+        
+      }
+      
+    
+    
     ## generate new pseduo-responses:
     famPreds=matrix(ncol=1,nrow=length(yp))
     if(isval){
