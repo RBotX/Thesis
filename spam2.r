@@ -46,10 +46,12 @@ test = data$data[data$testidx,]
 val = data$data[data$validx,]
 cat("starting pando\n")
 #mshared=TrainMultiTaskClassificationGradBoost(train,iter=iter,v=rate,groups=train[,"Family"],controls=rpart.control(),ridge.lambda=ridge.lambda,target="binary",valdata=val,fitTreeCoef = FALSE)
-mshared=TunePando(TrainMultiTaskClassificationGradBoost,train,val)
+mshared=TunePando(TrainMultiTaskClassificationGradBoost,train,val,fitCoef="ridge")
+mshared_obo=TunePando(TrainMultiTaskClassificationGradBoost,train,val,fitCoef="obo")
 cat("starting pando2\n")
 #mshared2=TrainMultiTaskClassificationGradBoost2(train,iter=iter,v=rate,groups=train[,"Family"],controls=rpart.control(),ridge.lambda=ridge.lambda,target="binary",treeType="rpart",valdata=val)
-mshared2=TunePando(TrainMultiTaskClassificationGradBoost2,train,val)
+mshared2=TunePando(TrainMultiTaskClassificationGradBoost2,train,val,fitCoef="ridge")
+mshared2_obo=TunePando(TrainMultiTaskClassificationGradBoost2,train,val,fitCoef="obo")
 cat("starting per task models\n")
 
 perTaskModels=list()
@@ -91,7 +93,7 @@ gplassotesty =  (gplassotestdata$X)[,ncol(gplassotestdata$X)]
 
 gplassoPreds = predict(mgplasso,gplassotestX,type="response",lambda=mgplasso$lambda.min)
 
-methods = c("PANDO","PTB","BB","PTLogit","BinaryLogit","PANDO2","GL")
+methods = c("PANDO","PANDO_OBO","PTB","BB","PTLogit","BinaryLogit","PANDO2","GL","PANDO2_OBO")
 
 
 rc=list()
@@ -118,6 +120,7 @@ for(fam in unique(test[,"Family"])){
 
   #bestIt=min(which(as.vector(mshared$log$vscore)==max(as.vector(mshared$log$vscore))))    
   tt[[methods[which(methods=="PANDO")]]]= predict(mshared[[toString(fam)]],tr.test[,-which(colnames(tr.test) %in% c("Family","Label"))],calibrate=TRUE)#,bestIt=bestIt)
+  tt[[methods[which(methods=="PANDO")]]]= predict(mshared_obo[[toString(fam)]],tr.test[,-which(colnames(tr.test) %in% c("Family","Label"))],calibrate=TRUE)#,bestIt=bestIt)
   #bestIt=perTaskModels[[toString(fam)]]$bestScoreRound
 
   tt[[methods[which(methods=="PTB")]]]= predict(perTaskModels[[toString(fam)]][[toString(fam)]],tr.test[,-which(colnames(tr.test) %in% c("Family","Label"))],calibrate=TRUE)#,bestIt=bestIt)
@@ -129,6 +132,7 @@ for(fam in unique(test[,"Family"])){
 
   #bestIt=min(which(as.vector(mshared2$log$vscore)==max(as.vector(mshared2$log$vscore))))    
   tt[[methods[which(methods=="PANDO2")]]] = predict(mshared2[[toString(fam)]],tr.test[,-which(colnames(tr.test) %in% c("Family","Label"))],calibrate=TRUE)#,bestIt=bestIt)
+  tt[[methods[which(methods=="PANDO2_OBO")]]] = predict(mshared2_obo[[toString(fam)]],tr.test[,-which(colnames(tr.test) %in% c("Family","Label"))],calibrate=TRUE)#,bestIt=bestIt)
   #tt[[methods[7]]] = predict(mshared3[[toString(fam)]],tr.test[,-which(colnames(tr.test) %in% c("Family","Label"))],calibrate=TRUE)
   tt[[methods[which(methods=="GL")]]] = gplassoPreds[test[,"Family"]==fam]
   
@@ -185,24 +189,6 @@ for(method in methods){
 
 
 
-cat("\n*********************************************\n")
-cat("final results:\n")
-finalresults= matrix(nrow=NUM_TESTS,ncol=length(methods))
-#finalAUC= matrix(nrow=NUM_TESTS,ncol=length(methods))
-colnames(finalresults)=methods
-#colnames(finalAUC)=methods
-for(l in 1:NUM_TESTS){
-  for(method in methods){
-    
-    score=pROC::roc(as.factor(alltests[alltests[,"testnum"]==l,"Label"]),alltests[alltests[,"testnum"]==l,method])
-    cat(method," ",score$auc[1],"\n")
-    finalresults[l,method]=score$auc[1]
-    #finalAUC[l,method]=score
-  }
-}
-for(m in colnames(finalresults)){
-  cat(m ,"mean:",mean(finalresults[,m]),"std:",sd(finalresults[,m]), "mean+std:",mean(finalresults[,m])-sd(finalresults[,m]),"\n")
-}
 
 
 compmat2=matrix(NA,nrow=length(unique(test[,"Family"])),ncol=length(methods))

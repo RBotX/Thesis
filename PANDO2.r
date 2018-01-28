@@ -2,12 +2,14 @@ source("helper.R")
 
 ### fit a coefficient per tree per task. all tasks share the same trees with different coefficients
 TrainMultiTaskClassificationGradBoost2 = function(df,valdata=NULL,earlystopping=100,iter=3,v=1,groups,controls,target="binary",fitCoef="ridge",treeType="rpart",unbalanced=FALSE){
+  
   scoreType = if(target == "binary") "auc" else "rmse"
   log=list()
   log[["tscore"]]=c()
   log[["vscore"]]=c()
   log[["vpred"]]=c()
   families = unique(groups)[unique(groups)!="clean"]
+  families = paste0("fam",0:(length(families)-1))
   data = df  
   finalModel=list()
   isval=!is.null(valdata)
@@ -93,6 +95,7 @@ TrainMultiTaskClassificationGradBoost2 = function(df,valdata=NULL,earlystopping=
           }else{
             famX=predict(fit,data.frame(x=famx))  
           }
+          ## famX is the predictions per family
           famy = pr[(data[,"Family"]==fam)]
           lmdf = matrix(ncol=2,nrow=length(famX))
           lmdf[,1]=as.matrix(famX,ncol=1)
@@ -117,37 +120,44 @@ TrainMultiTaskClassificationGradBoost2 = function(df,valdata=NULL,earlystopping=
         ridgeReg=data.frame(ridgeReg)
         colnames(ridgeReg)=c(families,"y")
   
-        useglmnet=FALSE
-        lambdas = 2^seq(6, -10, by = -.1)
-        if(useglmnet){
-          ridgeReg = cbind(ridgeRegX,ridgeRegy)
-          ridgeReg=data.frame(ridgeReg)
-          colnames(ridgeReg)=c(families,"y")
-          
-          mm=cv.glmnet(as.matrix(ridgeReg[,-which(colnames(ridgeReg) == "y")]),as.matrix(ridgeReg[,"y"]), alpha = 0, nlambda = 100,intercept=FALSE,nfolds=10,standardize=T)          
-          coefs =coef(mm,s="lambda.min")
-          coefs = data.frame(as.matrix(coefs)[-1,])[,1]
-          
-        }else{
-          m = lm.ridge(y~.-1,data = ridgeReg,lambda=lambdas) 
-          whichIsBest <- which.min(m$GCV) 
-          coefs = coef(m)[whichIsBest,]
+        if(fitCoef=='ridge')
+        {
+          useglmnet=FALSE
+          lambdas = 2^seq(6, -10, by = -.1)
+          if(useglmnet){
+            ridgeReg = cbind(ridgeRegX,ridgeRegy)
+            ridgeReg=data.frame(ridgeReg)
+            colnames(ridgeReg)=c(families,"y")
+            
+            mm=cv.glmnet(as.matrix(ridgeReg[,-which(colnames(ridgeReg) == "y")]),as.matrix(ridgeReg[,"y"]), alpha = 0, nlambda = 100,intercept=FALSE,nfolds=10,standardize=T)          
+            coefs =coef(mm,s="lambda.min")
+            coefs = data.frame(as.matrix(coefs)[-1,])[,1]
+            
+          }else{
+            m = lm.ridge(y~.-1,data = ridgeReg,lambda=lambdas) 
+            whichIsBest <- which.min(m$GCV) 
+            coefs = coef(m)[whichIsBest,]
+          }
+          names(coefs)=families
         }
-        names(coefs)=families
       }
+      obocoefs=NULL
       if(fitCoef == "obo"){        
-        grad=-negative_gradient(lmdf[,"y"],lmdf[,"x"],target) ## the overall gradient
+        ## the overall gradient
+        gradpertask=c()
         for(fam in families){
-          gradpertask=c(gradpertask,mean(grad[(data[,"Family"]==fam)])) ## gradient per task
+          taskidx=(data[,"Family"]==fam)
+          taskgrad=-negative_gradient(ridgeReg[taskidx,"y"],ridgeReg[taskidx,fam],target) 
+          gradpertask=c(gradpertask,mean(taskgrad)) ## approximated task gradient (mean)
         }
         names(gradpertask)=families
         gradnorm = sqrt(sum(gradpertask**2)) ## norm of the gradient per task vector
-        oboceofs = -gradpertask/gradnorm ## obozinski coefficient
+        obocoefs = -gradpertask/gradnorm ## obozinski coefficient
       }
     
       for(fam in families){
         if(fitCoef == "obo"){
-          as.numeric(obocoefs[fam])
+          fittedCoef=as.numeric(obocoefs[fam])
         }
         
         if(fitCoef == "nocoef"){

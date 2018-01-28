@@ -8,7 +8,9 @@ TrainMultiTaskClassificationGradBoost = function(df,valdata=NULL,earlystopping=1
   log[["vscore"]]=c()
   log[["vpred"]]=c()
   families = unique(groups)[unique(groups)!="clean"]
+  families = paste0("fam",0:(length(families)-1))
   data = df  
+  rownames(data)=NULL
   finalModel=list()
   isval=!is.null(valdata)
   if(target=="binary"){
@@ -76,6 +78,7 @@ TrainMultiTaskClassificationGradBoost = function(df,valdata=NULL,earlystopping=1
       fit=rpart(pr~.,data=data[,-which(colnames(data) %in% c("Label","Family"))],control=controls,method="anova")  
       environment(fit$terms) <- NULL
       obsToLeaf = fit$where
+      newLearnerPredictions = predict(fit,data=data[,-which(colnames(data) %in% c("Label","Family"))]) ## for obozinski
       #fit = purge(fit)
     }else{
       fit = ctree(y~.,data=data.frame(x=data[,-which(colnames(data) %in% c("Label","Family"))],y=pr),control=controls,cores=3)
@@ -101,19 +104,27 @@ TrainMultiTaskClassificationGradBoost = function(df,valdata=NULL,earlystopping=1
       ridgeRegy = matrix(nrow=0,ncol=1)
       PadColsToLeft = 0
       PadColsToRight = numFamilies-1
-      
+      famIndicator = matrix(ncol=1,nrow=0)
+      oboData=c()
       for(fam in families){
         ## check if this family has results in this leaf, if not, skip
         #cat(fam," ",length(which((samplesInLeaf)&(data[,"Family"]==fam))) == 0,"\n")
-        
-        if(length(which((samplesInLeaf)&(data[,"Family"]==fam))) == 0){
-          
+        dataInFamInLeafCount=length(which((samplesInLeaf)&(data[,"Family"]==fam)))
+        thisLeafPrediction =  as.numeric(unique(newLearnerPredictions[(samplesInLeaf)]))
+        if(dataInFamInLeafCount == 0){
           next
         }
         
         y = pr[(samplesInLeaf)&(data[,"Family"]==fam)]
+        
         y = matrix(y,nrow=length(y),ncol=1)
         X = matrix(1,nrow=nrow(y),ncol=1) ### 1 for each observation in this leaf for this family
+        Xobo = newLearnerPredictions[(samplesInLeaf)&(data[,"Family"]==fam)] ## predictions of the new base learner in this family in this leaf
+        oboFamilyIndicator = data[(samplesInLeaf)&(data[,"Family"]==fam),"Family"]
+        oboDataPerFam=cbind(Xobo,oboFamilyIndicator)
+        oboDataPerFam=cbind(oboDataPerFam,y) ## we also need the residuals ? --> yes! to calcualte the gradinet of the new base learner with respect to F_{t-1} (prior to its addition)
+        oboData=rbind(oboData,oboDataPerFam)
+        
         if(PadColsToLeft > 0){
           X = cbind(matrix(0,nrow=nrow(X),ncol=PadColsToLeft),X)
         }
@@ -161,32 +172,61 @@ TrainMultiTaskClassificationGradBoost = function(df,valdata=NULL,earlystopping=1
       PerLeafData = data.frame(ridgeRegX)
       PerLeafData = cbind(PerLeafData,y)
       #cat("before ridge target is ",head(y),"***********\n")
-      
-      lambdas = 2^seq(6, -10, by = -.1)
-      
-      useglmnet=FALSE
-      
-      if(useglmnet){
-        m=cv.glmnet(as.matrix(PerLeafData[,-which(colnames(PerLeafData) == "y")]),as.matrix(PerLeafData[,"y"]), alpha = 0, nlambda = 100,intercept=FALSE,nfolds=3,standardize=FALSE)  
-        leafCoefs = coef(m,s="lambda.min")
-        fittedFamilies = rownames(leafCoefs)[-1]
-        leafCoefs = as.data.frame(as.matrix(leafCoefs))[-1,]
-        names(leafCoefs) = fittedFamilies
+      if(fitCoef=='ridge'){
+        lambdas = 2^seq(6, -10, by = -.1)
         
-      }else{
-        m = lm.ridge(y~.-1,data = PerLeafData,lambda=lambdas) 
-        whichIsBest <- which.min(m$GCV) 
-        leafCoefs=coef(m)[whichIsBest,]
+        useglmnet=FALSE
+        
+        if(useglmnet){
+          m=cv.glmnet(as.matrix(PerLeafData[,-which(colnames(PerLeafData) == "y")]),as.matrix(PerLeafData[,"y"]), alpha = 0, nlambda = 100,intercept=FALSE,nfolds=3,standardize=FALSE)  
+          leafCoefs = coef(m,s="lambda.min")
+          fittedFamilies = rownames(leafCoefs)[-1]
+          leafCoefs = as.data.frame(as.matrix(leafCoefs))[-1,]
+          names(leafCoefs) = fittedFamilies
+          
+        }else{
+          m = lm.ridge(y~.-1,data = PerLeafData,lambda=lambdas) 
+          whichIsBest <- which.min(m$GCV) 
+          leafCoefs=coef(m)[whichIsBest,]
+          fittedFamilies = names(leafCoefs)
+        }
+      }
+      if(fitCoef == "obo"){        
+        ## the overall gradient
+        colnames(oboData)=c("newLeafPredictions","fam","y")
+        oboData=data.frame(oboData) ## to allow us to hold both numeric and strings together
+        oboData[,"y"]=as.numeric(levels(oboData[,"y"])[oboData[,"y"]])
+        oboData[,"newLeafPredictions"]=as.numeric(levels(oboData[,"newLeafPredictions"])[oboData[,"newLeafPredictions"]])
+        gradpertask=c()
+
+        for(fam in families){
+          taskidx=(oboData[,"fam"]==fam)
+          if(sum(taskidx)==0){
+            taskgrad=0
+          }else{
+            taskgrad=-negative_gradient(oboData[taskidx,"y"],oboData[taskidx,"newLeafPredictions"],target)   
+          }
+          gradpertask=c(gradpertask,mean(taskgrad)) ## approximated task gradient (mean)
+        }
+        names(gradpertask)=families
+        gradnorm = sqrt(sum(gradpertask**2)) ## norm of the gradient per task vector
+        leafCoefs = -gradpertask/gradnorm ## obozinski coefficient
+        leafCoefs[leafCoefs==0]=1 ## coefficient per leaf score
         fittedFamilies = names(leafCoefs)
       }
+      
       
       for(fam in families){
         if(fam %in% fittedFamilies){
           #intercept = as.numeric(coef(m)[1])
           #leavesToCoefs[[toString(fam)]][[l]]=as.numeric(leafCoefs[toString(fam)])
           intercept = 0
+          if(fitCoef=="obo"){
+            leavesToCoefs[[toString(fam)]][[l]]=as.numeric(leafCoefs[fam])*thisLeafPrediction
+          }else{
+            leavesToCoefs[[toString(fam)]][[l]]=as.numeric(leafCoefs[fam])  
+          }
           
-          leavesToCoefs[[toString(fam)]][[l]]=as.numeric(leafCoefs[fam])
           
 
         }else{

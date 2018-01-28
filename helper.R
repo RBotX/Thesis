@@ -18,11 +18,11 @@ vanillaboost = function(df,valdata=NULL,earlystopping=100,iter=1000,v=1,groups,c
 ## tuning rpart maxdepth,cp and num of iterations
 ## first tune tree params: maxdepth and cp on a fixed, probably samll number of iterations, then tune number of iterations
 ## for now we tune number of iterations on a validation set
-TunePando = function(pandofunc,traindata,valdata,target="binary",maxiter=1000,cv=5){
+TunePando = function(pandofunc,traindata,valdata,target="binary",maxiter=1000,cv=5,fitCoef="ridge"){
   traindata = traindata[sample(nrow(traindata)),] ## shuffle 
   rate=0.01 # start with high leanring rate to tune the other parameters
   folds = createFolds(1:nrow(traindata),k=cv)
-  iter=300
+  iter=30
   #grid = expand.grid(maxdepth=c(3,5,7,10,12,30),cp=c(0.005,0.01,0.0005)) ## --> 30 = unlimited depth in rpart, maxsurrogate=0 to reduce comp time
   grid = expand.grid(cp=c(0.01,0.001,0.0005)) ## --> 30 = unlimited depth in rpart, maxsurrogate=0 to reduce comp time
   grid = cbind(grid,rep(NA,nrow(grid)))
@@ -35,6 +35,7 @@ TunePando = function(pandofunc,traindata,valdata,target="binary",maxiter=1000,cv
     for(fold in folds){
       foldnum = foldnum+1
       train = traindata[fold,] ## train on this
+      train = traindata[fold,] ## train on this
       valdata = traindata[-fold,] ## predict on this
       maxdepth=grid[i,"maxdepth"]
       cp=grid[i,"cp"]
@@ -42,7 +43,7 @@ TunePando = function(pandofunc,traindata,valdata,target="binary",maxiter=1000,cv
       #controls = rpart.control(maxdepth = as.numeric(maxdepth),cp=as.numeric(cp),maxsurrogate=0,xval=5)
       controls = rpart.control(cp=as.numeric(cp),maxsurrogate=0)
       cat("fitting fold no ",foldnum ,"with params maxdepth=",maxdepth," cp=",cp,"\n")
-      mshared=pandofunc(train,iter=iter,v=rate,groups=train[,"Family"],controls=controls,target="binary",valdata=valdata,earlystopping = -1,fitCoef="ridge")
+      mshared=pandofunc(train,iter=iter,v=rate,groups=train[,"Family"],controls=controls,target="binary",valdata=valdata,earlystopping = -1,fitCoef=fitCoef)
       #cvpredictions[-fold] = mshared$log$vpred[,iter-1] ## the predictions on the validation set after all the iteartions
       cvpredictions[-fold,1:(iter-1)] = mshared$log$vpred ## all predictions for this fold
     }
@@ -55,17 +56,17 @@ TunePando = function(pandofunc,traindata,valdata,target="binary",maxiter=1000,cv
   bestParams = grid[bestGridIdx,]
   #cat("found best parameters to be: maxdepth=",bestParams[,"maxdepth"], " cp=",bestParams[,"cp"],"\n")
   cat("found best parameters to be:", " cp=",bestParams[,"cp"],"\n")
-  controls = rpart.control(cp=as.numeric(bestParams[,"cp"]))
+  controls = rpart.control(cp=as.numeric(bestParams[,"cp"]),maxsurrogate=0)
   # now we can use the validation set to determine the number of iterations
   rate=0.01
-  iter=1000
+  iter=30
   #cp=0.01
   cat("fitting pando with best parmaeters to find n_estimators\n")
-  mpando=pandofunc(traindata,iter=iter,v=rate,groups=traindata[,"Family"],controls=controls,target="binary",valdata=valdata,earlystopping = 100,fitCoef="ridge")
+  mpando=pandofunc(traindata,iter=iter,v=rate,groups=traindata[,"Family"],controls=controls,target="binary",valdata=valdata,earlystopping = 100,fitCoef=fitCoef)
   ## train on full data 
   fulltrain=rbind(traindata,valdata)
   cat("fitting pando on full data with ",as.numeric(mpando$bestScoreRound)," iterations\n")
-  ret=pandofunc(fulltrain,iter=mpando$bestScoreRound,v=rate,groups=fulltrain[,"Family"],controls=controls,target="binary",fitCoef="ridge")      
+  ret=pandofunc(fulltrain,iter=mpando$bestScoreRound,v=rate,groups=fulltrain[,"Family"],controls=controls,target="binary",fitCoef=fitCoef)      
   return(ret)
 }
 #### plot feature importances and save locally:
