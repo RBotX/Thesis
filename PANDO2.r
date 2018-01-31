@@ -8,8 +8,9 @@ TrainMultiTaskClassificationGradBoost2 = function(df,valdata=NULL,earlystopping=
   log[["tscore"]]=c()
   log[["vscore"]]=c()
   log[["vpred"]]=c()
-  families = unique(groups)[unique(groups)!="clean"]
-  families = paste0("fam",0:(length(families)-1))
+  #families = unique(groups)[unique(groups)!="clean"]
+  #families = paste0("fam",0:(length(families)-1))
+  families=unique(groups)
   data = df  
   finalModel=list()
   isval=!is.null(valdata)
@@ -47,7 +48,12 @@ TrainMultiTaskClassificationGradBoost2 = function(df,valdata=NULL,earlystopping=
     tscore = scorefunc(label=data$Label,preds=yp,scoreType=scoreType)
     log[["tscore"]]=c(log[["tscore"]],tscore)
     if(!is.null(valdata)){
-        vscore = scorefunc(label=valdata$Label,preds=ypvalscore,scoreType=scoreType)
+        vscore=0
+        for(fam in families){
+          idxs=(valdata[,"Family"]==fam)
+          vscore =vscore+ scorefunc(label=valdata$Label[idxs],preds=ypvalscore[idxs],scoreType=scoreType)  
+        }
+        vscore = vscore/length(families) ## average scores
         if(((vscore > bestVscore)&(scoreType == "auc"))||((vscore < bestVscore)&(scoreType == "rmse"))){
           bestVscore = vscore
           bestScoreRound=t
@@ -68,7 +74,9 @@ TrainMultiTaskClassificationGradBoost2 = function(df,valdata=NULL,earlystopping=
     }
     
     #cat(head(yp,n=50),"-----------\n")
-    pr = negative_gradient(y=data$Label,preds=ypscore,target=target,unbalanced=unbalanced) ## as if y-yp but multiply each adition by v so it's y-v*yp
+    pr = negative_gradient(y=data$Label,preds=ypscore,target=target,unbalanced=unbalanced) ## as if y-yp but multiply each adition by v so it's y-v*yp  
+    
+    
     if(any(is.na(pr))){
       cat("pr is na2\n")
     }
@@ -147,7 +155,7 @@ TrainMultiTaskClassificationGradBoost2 = function(df,valdata=NULL,earlystopping=
         gradpertask=c()
         for(fam in families){
           taskidx=(data[,"Family"]==fam)
-          taskgrad=-negative_gradient(ridgeReg[taskidx,"y"],ridgeReg[taskidx,fam],target) 
+          taskgrad=-negative_gradient(ridgeReg[taskidx,"y"],ridgeReg[taskidx,fam],target)
           gradpertask=c(gradpertask,mean(taskgrad)) ## approximated task gradient (mean)
         }
         names(gradpertask)=families

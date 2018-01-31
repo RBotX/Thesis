@@ -9,8 +9,11 @@ library(ggplot2)
 library(reshape2)
 library(purge)
 
-vanillaboost = function(df,valdata=NULL,earlystopping=100,iter=1000,v=1,groups,controls,target="binary",df.val=NULL,fitCoef="ls",treeType="rpart",unbalanced=FALSE){
-  vanillam=TrainMultiTaskClassificationGradBoost(df,valdata,earlystopping,iter,v,groups,controls,target)  ## fit leaf scores with simple least squares 
+
+
+
+vanillaboost = function(df,valdata=NULL,earlystopping=100,iter=1000,v=1,groups,controls,target="binary",fitCoef="ls",treeType="rpart",unbalanced=FALSE){
+  vanillam=TrainMultiTaskClassificationGradBoost2(df,valdata,earlystopping,iter,v,groups,controls,target,fitCoef="nocoef")  ## fit leaf scores with simple least squares 
   return(vanillam)
 }
 
@@ -18,25 +21,26 @@ vanillaboost = function(df,valdata=NULL,earlystopping=100,iter=1000,v=1,groups,c
 ## tuning rpart maxdepth,cp and num of iterations
 ## first tune tree params: maxdepth and cp on a fixed, probably samll number of iterations, then tune number of iterations
 ## for now we tune number of iterations on a validation set
-TunePando = function(pandofunc,traindata,valdata,target="binary",maxiter=1000,cv=5,fitCoef="ridge"){
-  traindata = traindata[sample(nrow(traindata)),] ## shuffle 
+TunePando = function(pandofunc,trdata,valdata,target="binary",maxiter=1000,cv=5,fitCoef="ridge"){
+  trdata = trdata[sample(nrow(trdata)),] ## shuffle 
   rate=0.01 # start with high leanring rate to tune the other parameters
-  folds = createFolds(1:nrow(traindata),k=cv)
-  iter=30
+  folds = createFolds(factor(trdata[,"Label"]),k=cv,list=TRUE)
+  iter=20
   #grid = expand.grid(maxdepth=c(3,5,7,10,12,30),cp=c(0.005,0.01,0.0005)) ## --> 30 = unlimited depth in rpart, maxsurrogate=0 to reduce comp time
-  grid = expand.grid(cp=c(0.01,0.001,0.0005)) ## --> 30 = unlimited depth in rpart, maxsurrogate=0 to reduce comp time
+  #grid = expand.grid(cp=c(0.01,0.001,0.0005)) ## --> 30 = unlimited depth in rpart, maxsurrogate=0 to reduce comp time
+  grid = expand.grid(cp=c(0.001)) ## --> 30 = unlimited depth in rpart, maxsurrogate=0 to reduce comp time
   grid = cbind(grid,rep(NA,nrow(grid)))
   colnames(grid)[ncol(grid)]="bestCvScore"
   grid = cbind(grid,rep(NA,nrow(grid)))
   colnames(grid)[ncol(grid)]="bestCvIt"
   for(i in 1:nrow(grid)){
-    cvpredictions = matrix(NA,nrow(traindata),ncol=iter-1) ### CV predictions per iterations
+    cvpredictions = matrix(NA,nrow(trdata),ncol=iter-1) ### CV predictions per iterations
     foldnum=0
     for(fold in folds){
       foldnum = foldnum+1
-      train = traindata[fold,] ## train on this
-      train = traindata[fold,] ## train on this
-      valdata = traindata[-fold,] ## predict on this
+      train = trdata[fold,] ## train on this
+      train = trdata[fold,] ## train on this
+      valdata = trdata[-fold,] ## predict on this
       maxdepth=grid[i,"maxdepth"]
       cp=grid[i,"cp"]
 
@@ -47,24 +51,24 @@ TunePando = function(pandofunc,traindata,valdata,target="binary",maxiter=1000,cv
       #cvpredictions[-fold] = mshared$log$vpred[,iter-1] ## the predictions on the validation set after all the iteartions
       cvpredictions[-fold,1:(iter-1)] = mshared$log$vpred ## all predictions for this fold
     }
-    aucs=apply(cvpredictions,2,function(x){as.numeric(pROC::auc(pROC::roc(as.factor(traindata[,"Label"]),as.numeric(x))))})
+    aucs=apply(cvpredictions,2,function(x){as.numeric(pROC::auc(pROC::roc(as.factor(trdata[,"Label"]),as.numeric(x))))})
     bestCvIt = which(aucs==max(aucs))[1]
     grid[i,"bestCvScore"]=max(aucs)
     grid[i,"bestCvIt"]=bestCvIt
   }
-  bestGridIdx = which(grid[,"bestCvScore"]==max(grid[,"bestCvScore"]))
+  bestGridIdx = which(grid[,"bestCvScore"]==max(grid[,"bestCvScore"]))[1]
   bestParams = grid[bestGridIdx,]
   #cat("found best parameters to be: maxdepth=",bestParams[,"maxdepth"], " cp=",bestParams[,"cp"],"\n")
   cat("found best parameters to be:", " cp=",bestParams[,"cp"],"\n")
   controls = rpart.control(cp=as.numeric(bestParams[,"cp"]),maxsurrogate=0)
   # now we can use the validation set to determine the number of iterations
   rate=0.01
-  iter=30
+  iter=2000
   #cp=0.01
   cat("fitting pando with best parmaeters to find n_estimators\n")
-  mpando=pandofunc(traindata,iter=iter,v=rate,groups=traindata[,"Family"],controls=controls,target="binary",valdata=valdata,earlystopping = 100,fitCoef=fitCoef)
+  mpando=pandofunc(trdata,iter=iter,v=rate,groups=trdata[,"Family"],controls=controls,target="binary",valdata=valdata,earlystopping = 100,fitCoef=fitCoef)
   ## train on full data 
-  fulltrain=rbind(traindata,valdata)
+  fulltrain=rbind(trdata,valdata)
   cat("fitting pando on full data with ",as.numeric(mpando$bestScoreRound)," iterations\n")
   ret=pandofunc(fulltrain,iter=mpando$bestScoreRound,v=rate,groups=fulltrain[,"Family"],controls=controls,target="binary",fitCoef=fitCoef)      
   return(ret)
@@ -264,6 +268,40 @@ negative_gradient = function(y,preds,groups=NULL,target="binary",unbalanced=FALS
 
 negative_gradient2 = function(y,preds,groups=NULL){
   ret = (2*y)/(1+exp(2*y*preds)) ## A gradient boosting machine, page 9
+  return(ret)
+}
+
+negative_gradient3 = function(y,preds,groups=NULL,target="binary",unbalanced=FALSE){
+  #####
+  ##
+  ret=matrix(0,length(y),ncol=1)
+  for(group in unique(groups)){
+    y_group=y[groups==group]
+    preds_group=preds[groups==group]
+    if(target=="binary"){
+      preds0_group = 1-preds_group 
+      preds0_group[preds0_group<0.00001]=0.00001 ## not allow very small divisions
+      preds_group[preds_group<0.00001]=0.00001 ## not allow very small divisions
+      
+      # if(unbalanced){
+      #   
+      #   Iplus = as.numeric(y==1)
+      #   nplus = sum(Iplus)
+      #   Iminus = as.numeric(y==-1)
+      #   nminus = sum(Iminus)
+      #   ret = preds*((Iplus/nplus) + (Iminus/nminus))
+      # }else{
+      ff = 0.5*log(preds_group/preds0_group)
+      ret_group = (2*y_group)/(1+exp(2*y_group*ff)) ## greedy function approximation, a gradient boosting machine, page 9
+      # }
+      #####
+      
+    }else if(target=="regression"){
+      ret_group = y_group-preds_group
+    }
+    #ret_group = ret_group**2 ## we want to the sqaure gradient per group
+    ret[groups==group] = ret_group
+  }
   return(ret)
 }
 
