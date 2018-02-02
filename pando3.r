@@ -28,11 +28,19 @@ getLeafScores = function(treefit,groups,pr){
 
 editRpartRegressionTree = function(treeFit,leafScores){
   leafRowIndex = row.names(treeFit$frame)
-  for(leafId in names(leafScores)){
-    treeFit$frame[leafRowIndex==leafId,"yval"]
+  for(leafId in names(leafScores)){ 
+    ## leafId is the row number in treeFit$frame that this leaf appears in: verified by  
+    ## all(sort(unique(treeFit$where))==which(treeFit$frame[,"var"]=="<leaf>"))
+    treeFit$frame[as.numeric(leafId),"yval"]=leafScores[[leafId]]
   }
   return(treeFit)
 }
+
+addTreeCoefRpart = function(treeFit,treeCoef){
+  treeFit$frame[which(treeFit$frame[,"var"]=="<leaf>"),"yval"] = treeCoef*treeFit$frame[which(treeFit$frame[,"var"]=="<leaf>"),"yval"]
+  return(treeFit)
+}
+
 
 ### fit a coefficient per tree per task. all tasks share the same trees with different coefficients
 TrainMultiTaskClassificationGradBoost3 = function(df,valdata=NULL,earlystopping=100,iter=3,v=1,groups,controls,target="binary",fitCoef="ridge",treeType="rpart",unbalanced=FALSE){

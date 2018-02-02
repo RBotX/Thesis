@@ -87,7 +87,7 @@ gplassoX = (gplassotraindata$X)[,-ncol(gplassotraindata$X)]
 gplassoy =  (gplassotraindata$X)[,ncol(gplassotraindata$X)]
 gplassoy[gplassoy==-1]=0
 
-mgplasso = cv.grpreg(gplassoX, gplassoy, group=gplassotraindata$groups, nfolds=2, maxit=10000,seed=777,family="binomial",trace=TRUE,penalty="grLasso")
+mgplasso = cv.grpreg(gplassoX, gplassoy, group=gplassotraindata$groups, nfolds=3, maxit=10000,seed=777,family="binomial",trace=TRUE,penalty="grLasso")
 
 gplassotestdata = CreateGroupLassoDesignMatrix(test)
 gplassotestX = (gplassotestdata$X)[,-ncol(gplassotestdata$X)]
