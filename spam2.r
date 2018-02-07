@@ -26,7 +26,7 @@ for(fam in unique(schools2[,"Family"])){
   
   testidx = c(testidx, sample(which(schools2[,"Family"]==fam),floor(length(which(schools2[,"Family"]==fam))*0.9) ))
   famtrain = setdiff(which(schools2[,"Family"]==fam),testidx)
-  famvalidx = sample(famtrain,0.1*length(famtrain) ) #val 10% of train
+  famvalidx = sample(famtrain,0.15*length(famtrain) ) #val 10% of train
   validx = c(validx,famvalidx)
   famtrain = setdiff(famtrain,validx) # remove validation from train
   trainidx = c(trainidx,famtrain)
@@ -49,7 +49,7 @@ cat("starting pando2\n")
 mshared2=TunePando(TrainMultiTaskClassificationGradBoost2,train,val,fitTreeCoef="ridge",fitLeafCoef="nocoef",trainrate = 0.1)
 cat("starting per task models\n")
 
-perTaskMethods=FALSE
+perTaskMethods=TRUE
 if(perTaskMethods){
   perTaskModels=list()
   logitModels=list()
@@ -60,7 +60,7 @@ if(perTaskMethods){
     tr.val = val[val[,"Family"]==fam,]
     #    m0 = TrainMultiTaskClassificationGradBoost(tr,valdata=tr.val,groups = matrix(fam,nrow=nrow(tr),ncol=1),iter=iter,v=0.01,
     #                                               controls=rpart.control(), ridge.lambda = ridge.lambda,target="binary") 
-    m0=TunePando(vanillaboost,tr,tr.val)
+    m0=TunePando(vanillaboost,tr,tr.val,trainrate = 0.1)
     # m0 = TrainMultiTaskClassificationGradBoost(tr,valdata=tr.val,groups = matrix(fam,nrow=nrow(tr),ncol=1),iter=iter,v=0.01,
     #                                            controls=rpart.control(), ridge.lambda = ridge.lambda,target="binary")  
     
@@ -79,7 +79,7 @@ binaryVal["Family"]="1"
 mbinary=TunePando(vanillaboost,binaryData,binaryVal,fitTreeCoef="nocoef",fitLeafCoef="ridge",trainrate=0.1)
 #mbinary2=TunePando(vanillaboost2,binaryData,binaryVal,fitTreeCoef="nocoef",fitLeafCoef="ridge",trainrate=0.1)
 
-linearMethods=FALSE
+linearMethods=TRUE
 if(linearMethods){
   mlogitbinary = cv.glmnet(x=as.matrix(rbind(binaryData,binaryVal)[,-which(colnames(tr) %in% c("Family","Label"))]),y=rbind(binaryData,binaryVal)[,"Label"],family="binomial",alpha=1,maxit=10000,nfolds=3, thresh=1E-4)
   gplassotraindata = CreateGroupLassoDesignMatrix(rbind(train,val))
@@ -267,7 +267,7 @@ for(fam in unique(test[,"Family"])){
 # 0.9796171   0.9823319 
 allpreds=data.frame(allpreds)
 roc.test(roc(as.factor(allpreds[,"Label"]),as.numeric(allpreds[,"BB"])),
-         roc(as.factor(allpreds[,"Label"]),as.numeric(allpreds[,"PANDO2"]))
+         roc(as.factor(allpreds[,"Label"]),as.numeric(allpreds[,"PANDO2"])))
 
 
 
