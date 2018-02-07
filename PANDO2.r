@@ -1,7 +1,7 @@
 source("helper.R")
 
 ### fit a coefficient per tree per task. all tasks share the same trees with different coefficients
-TrainMultiTaskClassificationGradBoost2 = function(df,valdata=NULL,earlystopping=100,iter=3,v=1,groups,controls,target="binary",fitCoef="ridge",treeType="rpart",unbalanced=FALSE){
+TrainMultiTaskClassificationGradBoost2 = function(df,valdata=NULL,earlystopping=100,iter=3,v=1,groups,controls,target="binary",fitCoef="ridge",treeType="rpart",fitTreeCoef = NULL, fitLeafCoef = NULL,unbalanced=FALSE){
   
   scoreType = if(target == "binary") "auc" else "rmse"
   log=list()
@@ -48,12 +48,13 @@ TrainMultiTaskClassificationGradBoost2 = function(df,valdata=NULL,earlystopping=
     tscore = scorefunc(label=data$Label,preds=yp,scoreType=scoreType)
     log[["tscore"]]=c(log[["tscore"]],tscore)
     if(!is.null(valdata)){
-        vscore=0
-        for(fam in families){
-          idxs=(valdata[,"Family"]==fam)
-          vscore =vscore+ scorefunc(label=valdata$Label[idxs],preds=ypvalscore[idxs],scoreType=scoreType)  
-        }
-        vscore = vscore/length(families) ## average scores
+        # vscore=0
+        # for(fam in families){
+        #   idxs=(valdata[,"Family"]==fam)
+        #   vscore =vscore+ scorefunc(label=valdata$Label[idxs],preds=ypvalscore[idxs],scoreType=scoreType)  
+        # }
+        # vscore = vscore/length(families) ## average scores
+        vscore = scorefunc(label=valdata$Label,preds=ypvalscore,scoreType=scoreType)  
         if(((vscore > bestVscore)&(scoreType == "auc"))||((vscore < bestVscore)&(scoreType == "rmse"))){
           bestVscore = vscore
           bestScoreRound=t
@@ -131,7 +132,7 @@ TrainMultiTaskClassificationGradBoost2 = function(df,valdata=NULL,earlystopping=
         if(fitCoef=='ridge')
         {
           useglmnet=FALSE
-          lambdas = 2^seq(6, -10, by = -.1)
+          lambdas = 2^seq(3, -10, by = -.1)
           if(useglmnet){
             ridgeReg = cbind(ridgeRegX,ridgeRegy)
             ridgeReg=data.frame(ridgeReg)

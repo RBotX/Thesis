@@ -1,4 +1,132 @@
 source("helper.R")
+
+getLeafScores2 = function(treefit,groups,pr){
+  families=unique(groups)
+  numFamilies = length(families)
+  leaves = unique(treefit$where)
+  obsToLeaf = treefit$where
+  leavesToCoefs = list()
+  for(l in leaves){
+    samplesInLeaf = (obsToLeaf==l) ## which are in the l-th leaf
+    if(length(which(samplesInLeaf))==0){
+      stop("zero samples - bad!\n")
+
+    }
+    
+    
+    ### take leaf predictions in that leaf, treat those as a variable in a ridge prediction
+    ridgeRegX = matrix(nrow=0,ncol=numFamilies)
+    ridgeRegy = matrix(nrow=0,ncol=1)
+    PadColsToLeft = 0
+    PadColsToRight = numFamilies-1
+    famIndicator = matrix(ncol=1,nrow=0)
+    oboData=c()
+    for(fam in families){
+      ## check if this family has results in this leaf, if not, skip
+      familiesInLeaf = length(unique(groups[(samplesInLeaf)]))
+      dataInFamInLeafCount=length(which((samplesInLeaf)&(groups==fam)))
+      #thisLeafPrediction =  as.numeric(unique(newLearnerPredictions[(samplesInLeaf)]))
+      if(dataInFamInLeafCount == 0){
+        next
+      }
+      
+      
+      y = pr[(samplesInLeaf)&(groups==fam)]
+      
+      y = matrix(y,nrow=length(y),ncol=1)
+      X = matrix(1,nrow=nrow(y),ncol=1) ### 1 for each observation in this leaf for this family
+
+      if(PadColsToLeft > 0){
+        X = cbind(matrix(0,nrow=nrow(X),ncol=PadColsToLeft),X)
+      }
+      if(PadColsToRight > 0){
+        X = cbind(X,matrix(0,nrow=nrow(X),ncol=PadColsToRight))
+      }
+      PadColsToLeft = PadColsToLeft+1
+      PadColsToRight = PadColsToRight-1
+      ridgeRegX = rbind(ridgeRegX,X)
+      ridgeRegy = rbind(ridgeRegy,y)
+    }
+    y=ridgeRegy
+    colnames(y)="y"
+    colnames(ridgeRegX)=families
+    nonZeroFams= c()
+    cnames=colnames(ridgeRegX)
+    for(cname in cnames){
+      #cat(paste("dim ridgeRegX",dim(ridgeRegX),"\n"))
+      if(is.null(dim(ridgeRegX))){
+        ridgeRegX=t(as.matrix(ridgeRegX))
+      }
+      if(all(ridgeRegX[,cname]==0)){
+        
+        ridgeRegX = ridgeRegX[,-which(colnames(ridgeRegX)==cname)]
+      }else{
+        nonZeroFams = c(nonZeroFams,cname)
+      }
+      
+    }
+    ## when we create a matrix of two columns, and remove one column, we get that ncol=null.
+    ## however, when we get a 
+    
+    if(is.null(ncol(ridgeRegX)) | numFamilies==1){ ## we have a single family in that leaf
+      
+      for(fam in families){
+        leavesToCoefs[[toString(fam)]][[toString(l)]]=mean(y)
+      }
+      next
+    }
+    
+    PerLeafData = data.frame(ridgeRegX)
+    PerLeafData = cbind(PerLeafData,y)
+    #cat("before ridge target is ",head(y),"***********\n")
+    # if(fitCoef=='ridge'){
+    lambdas = 2^seq(6, -10, by = -1)
+    useglmnet=FALSE
+    
+    if(useglmnet){
+      m=cv.glmnet(as.matrix(PerLeafData[,-which(colnames(PerLeafData) == "y")]),as.matrix(PerLeafData[,"y"]), alpha = 0, nlambda = 100,intercept=FALSE,nfolds=3,standardize=FALSE)  
+      leafCoefs = coef(m,s="lambda.min")
+      fittedFamilies = rownames(leafCoefs)[-1]
+      leafCoefs = as.data.frame(as.matrix(leafCoefs))[-1,]
+      names(leafCoefs) = fittedFamilies
+      
+    }else{
+      m = lm.ridge(y~.-1,data = PerLeafData,lambda=lambdas) 
+      whichIsBest <- which.min(m$GCV) 
+      leafCoefs=coef(m)[whichIsBest,]
+      fittedFamilies = names(leafCoefs)
+    }
+    # }
+
+    for(fam in families){
+          intercept = 0
+          if(!(fam %in% fittedFamilies)){
+            leafCoefs=c(leafCoefs,mean(y))
+            names(leafCoefs)[length(names(leafCoefs))]=fam
+          }
+          leavesToCoefs[[toString(fam)]][[toString(l)]]=as.numeric(leafCoefs[fam])  
+          if(is.na(as.numeric(leafCoefs[fam])) | is.na(mean(y))){
+            cat("hey")
+          }
+          
+    }
+    
+    
+  }
+  for(fam in families){
+    
+    leavesToCoefs[[toString(fam)]] =   leavesToCoefs[[toString(fam)]][-which(is.na(leavesToCoefs[[toString(fam)]]))]
+  }
+  return(leavesToCoefs)
+}
+
+
+
+
+
+
+####################################################3
+
 getLeafScores = function(treefit,groups,pr){
   families=unique(groups)
   leaves = unique(treefit$where)
@@ -26,6 +154,36 @@ getLeafScores = function(treefit,groups,pr){
   return(leafScores)
 }
 
+#########################################################
+getLeafScores3 = function(treefit,groups,pr){
+  families=unique(groups)
+  leaves = unique(treefit$where)
+  obsToLeaf = treefit$where
+  leafScores = list()
+  for(l in leaves){
+    samplesInLeaf = (obsToLeaf==l) ## which are in the l-th leaf
+    if(length(which(samplesInLeaf))==0){
+      next
+    }
+    leafScore=0
+    for(fam in families){
+      ## check if this family has results in this leaf, if not, skip
+      #cat(fam," ",length(which((samplesInLeaf)&(data[,"Family"]==fam))) == 0,"\n")
+      dataInFamInLeafCount=length(which((samplesInLeaf)&(groups==fam)))
+      if(dataInFamInLeafCount == 0){
+        next
+      }
+      
+      y = pr[(samplesInLeaf)&(groups==fam)]
+      leafScore = leafScore + mean(y)
+    }
+    leafScores[[toString(l)]]=leafScore
+  }
+  return(leafScores)
+}
+###########################################################
+
+
 editRpartRegressionTree = function(treeFit,leafScores){
   leafRowIndex = row.names(treeFit$frame)
   for(leafId in names(leafScores)){ 
@@ -42,9 +200,9 @@ addTreeCoefRpart = function(treeFit,treeCoef){
 }
 
 
-### fit a coefficient per tree per task. all tasks share the same trees with different coefficients
-TrainMultiTaskClassificationGradBoost3 = function(df,valdata=NULL,earlystopping=100,iter=3,v=1,groups,controls,target="binary",fitCoef="ridge",treeType="rpart",unbalanced=FALSE){
-  
+### fit a coefficient per tree per task. all tasks share the same trees with different coefficients 
+TrainMultiTaskClassificationGradBoost3 = function(df,valdata=NULL,earlystopping=100,iter=3,v=1,groups,controls,target="binary",fitLeafCoef="ridge",fitTreeCoef="ridge",treeType="rpart",unbalanced=FALSE){
+  rate=v
   scoreType = if(target == "binary") "auc" else "rmse"
   log=list()
   log[["tscore"]]=c()
@@ -137,9 +295,30 @@ TrainMultiTaskClassificationGradBoost3 = function(df,valdata=NULL,earlystopping=
     
     
     ##### building obo leaf scores:
-    leavesToCoefs = getLeafScores(treefit=fit,groups=groups,pr=pr)
+    familyTree=list()
+    if(fitLeafCoef=="ridge" | fitLeafCoef=="nocoef"){
+      leavesToCoefs = getLeafScores2(treefit=fit,groups=groups,pr=pr)
+      for(fam in families){
+        familyTree[[fam]]=editRpartRegressionTree(fit,leavesToCoefs[[fam]])
+      }
+    }
+    if(fitLeafCoef=="obo"){
+     leavesToCoefs = getLeafScores(treefit=fit,groups=groups,pr=pr)
+     for(fam in families){
+       familyTree[[fam]]=editRpartRegressionTree(fit,leavesToCoefs)
+     }
+    }
+    # if(fitLeafCoef=="nocoef"){ ## to be used in pando with tree coef, and vanillaboost
+    #   for(fam in families){
+    #     familyTree[[fam]]=fit
+    #   }
+    #}
+    
+    
+    
     ### editing model per tree
-    fit=editRpartRegressionTree(fit,leavesToCoefs) 
+    
+    #fit=editRpartRegressionTree(fit,leavesToCoefs) 
     ## now are tree model includes leaf scores which reflect l12 reg as they minimize
     ## block wise loss instead of overall loss
     
@@ -147,10 +326,10 @@ TrainMultiTaskClassificationGradBoost3 = function(df,valdata=NULL,earlystopping=
     ##### fitting the coefficient per tree
     ridgeRegX = NULL
     ridgeRegy = NULL
-    if(fitCoef=="ridge" | fitCoef=="obo"){
+    if(fitTreeCoef=="ridge" | fitTreeCoef=="obo"){
       for(fam in families){
         ###  fit a coefficient per entire tree per family
-        
+        fit=familyTree[[fam]] ## get tree for this family, regrdless of the used method
         
         famx = data[(data[,"Family"]==fam),-which(colnames(data) %in% c("Label","Family"))]
         if(treeType=="rpart"){
@@ -183,10 +362,10 @@ TrainMultiTaskClassificationGradBoost3 = function(df,valdata=NULL,earlystopping=
       ridgeReg=data.frame(ridgeReg)
       colnames(ridgeReg)=c(families,"y")
       
-      if(fitCoef=='ridge')
+      if(fitTreeCoef=='ridge')
       {
         useglmnet=FALSE
-        lambdas = 2^seq(6, -10, by = -.1)
+        lambdas = 2^seq(3, -10, by = -.1)
         if(useglmnet){
           ridgeReg = cbind(ridgeRegX,ridgeRegy)
           ridgeReg=data.frame(ridgeReg)
@@ -205,7 +384,7 @@ TrainMultiTaskClassificationGradBoost3 = function(df,valdata=NULL,earlystopping=
       }
     }
     obocoefs=NULL
-    if(fitCoef == "obo"){        
+    if(fitTreeCoef == "obo"){        
       ## the overall gradient
       gradpertask=c()
       for(fam in families){
@@ -216,23 +395,24 @@ TrainMultiTaskClassificationGradBoost3 = function(df,valdata=NULL,earlystopping=
       names(gradpertask)=families
       gradnorm = sqrt(sum(gradpertask**2)) ## norm of the gradient per task vector
       obocoefs = -gradpertask/gradnorm ## obozinski coefficient
+      #cat("obo coefs are: ",obocoefs,"\n\n")
     }
     
     for(fam in families){
-      if(fitCoef == "obo"){
+      if(fitTreeCoef == "obo"){
         fittedCoef=as.numeric(obocoefs[fam])
       }
       
-      if(fitCoef == "nocoef"){
+      if(fitTreeCoef == "nocoef"){
         fittedCoef=1 ## standard boosting
       }
       
-      if(fitCoef == "ridge"){
+      if(fitTreeCoef == "ridge"){
         fittedCoef = as.numeric(coefs[fam])          
       }
       
       fittedIntercept = 0
-      finalModel[[toString(fam)]][[t]] = TreeWithCoef(fit,fittedCoef,fittedIntercept,treeType=treeType)
+      finalModel[[toString(fam)]][[t]] = TreeWithCoef(familyTree[[fam]],fittedCoef,fittedIntercept,treeType=treeType)
       
     }
     
