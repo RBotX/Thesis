@@ -1,14 +1,16 @@
 source("helper.R")
 
 ### fit leaf scores per task
-TrainMultiTaskClassificationGradBoost = function(df,valdata=NULL,earlystopping=100,iter=3,v=1,groups,controls,target="binary",treeType="rpart",fitCoef=NULL,fitTreeCoef=FALSE,unbalanced=FALSE){
+###train,iter=iter,v=rate,groups=train[,"Family"],controls=controls,target=target,valdata=valdata,earlystopping = -1,fitTreeCoef=fitTreeCoef,fitLeafCoef=fitLeafCoef
+TrainMultiTaskClassificationGradBoost = function(df,valdata=NULL,earlystopping=100,iter=3,v=1,groups,controls,target="binary",treeType="rpart",fitCoef="ridge",fitTreeCoef=FALSE,unbalanced=FALSE,fitLeafCoef=NULL){
   scoreType = if(target == "binary") "auc" else "rmse"
   log=list()
   log[["tscore"]]=c()
   log[["vscore"]]=c()
   log[["vpred"]]=c()
-  families = unique(groups)[unique(groups)!="clean"]
-  families = paste0("fam",0:(length(families)-1))
+  #families = unique(groups)[unique(groups)!="clean"]
+  families = unique(groups)
+  #families = paste0("fam",0:(length(families)-1))
   data = df  
   rownames(data)=NULL
   finalModel=list()
@@ -173,8 +175,7 @@ TrainMultiTaskClassificationGradBoost = function(df,valdata=NULL,earlystopping=1
       PerLeafData = cbind(PerLeafData,y)
       #cat("before ridge target is ",head(y),"***********\n")
       if(fitCoef=='ridge'){
-        lambdas = 2^seq(6, -10, by = -.1)
-        
+        lambdas = 2^seq(3, -10, by = -.1)
         useglmnet=FALSE
         
         if(useglmnet){
@@ -224,7 +225,7 @@ TrainMultiTaskClassificationGradBoost = function(df,valdata=NULL,earlystopping=1
           if(fitCoef=="obo"){
             leavesToCoefs[[toString(fam)]][[l]]=as.numeric(leafCoefs[fam])*thisLeafPrediction
           }else{
-            leavesToCoefs[[toString(fam)]][[l]]=as.numeric(leafCoefs[fam])  
+            leavesToCoefs[[toString(fam)]][[l]]=as.numeric(leafCoefs[fam])
           }
           
           
@@ -239,25 +240,7 @@ TrainMultiTaskClassificationGradBoost = function(df,valdata=NULL,earlystopping=1
     ### when we predic in the predict.boost stage...
     
     for(fam in families){
-
       finalModel[[toString(fam)]][[t]] = TreeWithLeafCoefs(fit,leavesToCoefs[[toString(fam)]])
-      if(fitTreeCoef){
-        famX = predict(finalModel[[toString(fam)]][[t]] ,data[(data[,"Family"]==fam),-which(colnames(data) %in% c("Label","Family"))])        
-        famy = pr[(data[,"Family"]==fam)]
-        lmdf = matrix(ncol=2,nrow=length(famX))
-        lmdf[,1]=as.matrix(famX,ncol=1)
-        lmdf[,2]=as.matrix(famy,ncol=1)
-        colnames(lmdf)=c("x","y")
-        lmdf = data.frame(lmdf)
-        mm = lm(y~x -1,data=lmdf)
-        fittedCoef = as.numeric(coef(mm)[1])
-        if(is.na(fittedCoef)){
-          fittedCoef=1
-        }
-        fittedIntercept = 0
-        finalModel[[toString(fam)]][[t]] = TreeWithCoef(finalModel[[toString(fam)]][[t]],fittedCoef,fittedIntercept,treeType="rpart")
-      }
-      
     }
     
     famPreds=matrix(ncol=1,nrow=length(yp))
@@ -272,7 +255,6 @@ TrainMultiTaskClassificationGradBoost = function(df,valdata=NULL,earlystopping=1
         ppval = predict(finalModel[[toString(fam)]][[t]],valdata[valdata[,"Family"]==fam,-which(colnames(data) %in% c("Label","Family"))])  
         valfamPreds[valdata[,"Family"]==fam,1]=as.matrix(ppval,ncol=1)  
       }
-    
     }
     
     yp = yp + v*famPreds

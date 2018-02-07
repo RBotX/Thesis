@@ -59,12 +59,11 @@ for(l in 1:NUM_TESTS){
   train = data$data[data$trainidx,]
   test = data$data[data$testidx,]
   val = data$data[data$validx,]
-  cat("starting pando\n")
-  mshared=TrainMultiTaskClassificationGradBoost(train,iter=iter,v=rate,groups=train[,"Family"],controls=rpart.control(maxdepth = 3, cp=0.000001),ridge.lambda=ridge.lambda,target="binary",valdata=val,fitTreeCoef = FALSE, unbalanced=FALSE)
-  
-  
+  mshared=TunePando(TrainMultiTaskClassificationGradBoost3,train,val,fitTreeCoef="nocoef",fitLeafCoef="ridge",trainrate = 0.1)
   cat("starting pando2\n")
-  mshared2=TrainMultiTaskClassificationGradBoost2(train,iter=iter,v=rate,groups=train[,"Family"],controls=rpart.control(maxdepth = 3, cp=0.000001),ridge.lambda=ridge.lambda,target="binary",treeType="rpart",valdata=val,unbalanced=FALSE)
+  #mshared2=TrainMultiTaskClassificationGradBoost2(train,iter=iter,v=rate,groups=train[,"Family"],controls=rpart.control(),ridge.lambda=ridge.lambda,target="binary",treeType="rpart",valdata=val)
+  mshared2=TunePando(TrainMultiTaskClassificationGradBoost3,train,val,fitTreeCoef="ridge",fitLeafCoef="nocoef",trainrate = 0.1)
+  
   
   cat("starting pando3\n")
   mshared3=TrainMultiTaskClassificationGradBoost(train,iter=iter,v=rate,groups=train[,"Family"],controls=rpart.control(maxdepth = 3, cp=0.000001),ridge.lambda=ridge.lambda,target="binary",valdata=val,fitTreeCoef = TRUE)
