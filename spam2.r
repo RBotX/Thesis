@@ -44,9 +44,9 @@ train = data$data[data$trainidx,]
 test = data$data[data$testidx,]
 val = data$data[data$validx,]
 cat("starting pando\n")
-mshared=TunePando(TrainMultiTaskClassificationGradBoost,train,val,fitTreeCoef="nocoef",fitLeafCoef="ridge",trainrate = 0.1)
+mshared=TunePando(TrainMultiTaskClassificationGradBoost,train,val,fitTreeCoef="nocoef",fitLeafCoef="ridge",trainrate = 0.01)
 cat("starting pando2\n")
-mshared2=TunePando(TrainMultiTaskClassificationGradBoost2,train,val,fitTreeCoef="ridge",fitLeafCoef="nocoef",trainrate = 0.1)
+mshared2=TunePando(TrainMultiTaskClassificationGradBoost2,train,val,fitTreeCoef="ridge",fitLeafCoef="nocoef",trainrate = 0.01)
 cat("starting per task models\n")
 
 perTaskMethods=TRUE
@@ -60,7 +60,7 @@ if(perTaskMethods){
     tr.val = val[val[,"Family"]==fam,]
     #    m0 = TrainMultiTaskClassificationGradBoost(tr,valdata=tr.val,groups = matrix(fam,nrow=nrow(tr),ncol=1),iter=iter,v=0.01,
     #                                               controls=rpart.control(), ridge.lambda = ridge.lambda,target="binary") 
-    m0=TunePando(vanillaboost,tr,tr.val,trainrate = 0.1)
+    m0=TunePando(vanillaboost2,tr,tr.val,trainrate = 0.01)
     # m0 = TrainMultiTaskClassificationGradBoost(tr,valdata=tr.val,groups = matrix(fam,nrow=nrow(tr),ncol=1),iter=iter,v=0.01,
     #                                            controls=rpart.control(), ridge.lambda = ridge.lambda,target="binary")  
     
@@ -76,7 +76,7 @@ binaryData["Family"]="1"
 binaryVal = val
 binaryVal["Family"]="1"
 #mbinary=TrainMultiTaskClassificationGradBoost(binaryData,iter=iter,v=rate,groups=matrix(1,nrow=nrow(binaryData),ncol=1),controls=rpart.control(),ridge.lambda=ridge.lambda,target="binary",valdata=binaryVal)
-mbinary=TunePando(vanillaboost,binaryData,binaryVal,fitTreeCoef="nocoef",fitLeafCoef="ridge",trainrate=0.1)
+mbinary=TunePando(vanillaboost2,binaryData,binaryVal,fitTreeCoef="nocoef",fitLeafCoef="nocoef",trainrate=0.01)
 #mbinary2=TunePando(vanillaboost2,binaryData,binaryVal,fitTreeCoef="nocoef",fitLeafCoef="ridge",trainrate=0.1)
 
 linearMethods=TRUE
@@ -245,6 +245,7 @@ for(i in 1:50){
 }
 
 quantile(allavgs[,"PANDO2"]-allavgs[,"BB"],probs=c(0.025,0.975)) ### this gives us the 95% confidence interval
+quantile(allavgs[,"PANDO2"]-allavgs[,"BinaryLogit"],probs=c(0.025,0.975)) ### this gives us the 95% confidence interval
   
 
 compmat2=matrix(NA,nrow=length(unique(test[,"Family"])),ncol=length(methods))
@@ -267,6 +268,10 @@ for(fam in unique(test[,"Family"])){
 # 0.9796171   0.9823319 
 allpreds=data.frame(allpreds)
 roc.test(roc(as.factor(allpreds[,"Label"]),as.numeric(allpreds[,"BB"])),
+         roc(as.factor(allpreds[,"Label"]),as.numeric(allpreds[,"PANDO2"])))
+
+
+roc.test(roc(as.factor(allpreds[,"Label"]),as.numeric(allpreds[,"BinaryLogit"])),
          roc(as.factor(allpreds[,"Label"]),as.numeric(allpreds[,"PANDO2"])))
 
 

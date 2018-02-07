@@ -29,7 +29,7 @@ vanillaboost = function(df,valdata=NULL,earlystopping=100,iter=1000,v=1,groups,c
 }
 
 vanillaboost2 = function(df,valdata=NULL,earlystopping=100,iter=1000,v=1,groups,controls,target="binary",treeType="rpart",unbalanced=FALSE,fitTreeCoef=NULL,fitLeafCoef=NULL){
-  vanillam=TrainMultiTaskClassificationGradBoost2(df,valdata,earlystopping,iter,v,groups,controls,target,fitTreeCoef="nocoef",fitLeafCoef="ridge")  ## fit leaf scores with simple least squares
+  vanillam=TrainMultiTaskClassificationGradBoost2(df,valdata,earlystopping,iter,v,groups,controls,target,fitTreeCoef="nocoef",fitLeafCoef="ridge",fitCoef="nocoef")  ## fit leaf scores with simple least squares
   #vanillam=TrainMultiTaskClassificationGradBoost(df,valdata,earlystopping,iter,v,groups,controls,target)  ## fit leaf scores with simple least squares 
   return(vanillam)
 }
