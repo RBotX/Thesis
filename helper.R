@@ -99,7 +99,7 @@ TunePando = function(pandofunc,trdata,valdata,target="binary",maxiter=1000,cv=3,
   # 
   # cat("found best parameters to be:", " cp=",bestParams[,"cp"]," maxdepth=",bestParams[,"maxdepth"],"\n")
   # #controls = rpart.control(cp=as.numeric(bestParams[,"cp"]),maxdepth=as.numeric(bestParams[,"maxdepth"]))
-  controls=rpart.control()
+  controls=rpart.control(cp=0.00001)
   # now we can use the validation set to determine the number of iterations
   rate=trainrate
   iter=2000

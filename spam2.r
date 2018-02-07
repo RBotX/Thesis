@@ -65,7 +65,7 @@ if(perTaskMethods){
     #                                            controls=rpart.control(), ridge.lambda = ridge.lambda,target="binary")  
     
     perTaskModels[[toString(fam)]]=m0
-    logitModels[[toString(fam)]]= cv.glmnet(x=as.matrix(rbind(tr,tr.val)[,-which(colnames(tr) %in% c("Family","Label"))]),y=rbind(tr,tr.val)[,"Label"],family="binomial",alpha=1,maxit=10000,nfolds=3, thresh=1E-4)
+    logitModels[[toString(fam)]]= cv.glmnet(x=as.matrix(rbind(tr,tr.val)[,-which(colnames(tr) %in% c("Family","Label"))]),y=rbind(tr,tr.val)[,"Label"],family="binomial",alpha=1,maxit=10000,nfolds=5, thresh=1E-6,nlambda = 50)
   }
   
 }
@@ -81,7 +81,7 @@ mbinary=TunePando(vanillaboost2,binaryData,binaryVal,fitTreeCoef="nocoef",fitLea
 
 linearMethods=TRUE
 if(linearMethods){
-  mlogitbinary = cv.glmnet(x=as.matrix(rbind(binaryData,binaryVal)[,-which(colnames(tr) %in% c("Family","Label"))]),y=rbind(binaryData,binaryVal)[,"Label"],family="binomial",alpha=1,maxit=10000,nfolds=3, thresh=1E-4)
+  mlogitbinary = cv.glmnet(x=as.matrix(rbind(binaryData,binaryVal)[,-which(colnames(tr) %in% c("Family","Label"))]),y=rbind(binaryData,binaryVal)[,"Label"],family="binomial",alpha=1,maxit=100000,nfolds=5, nlambda=100,thresh=1E-6)
   gplassotraindata = CreateGroupLassoDesignMatrix(rbind(train,val))
   gplassoX = (gplassotraindata$X)[,-ncol(gplassotraindata$X)]
   gplassoy =  (gplassotraindata$X)[,ncol(gplassotraindata$X)]

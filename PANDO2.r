@@ -229,8 +229,9 @@ TrainMultiTaskClassificationGradBoost2 = function(df,valdata=NULL,earlystopping=
     if(!isval){
       bestScoreRound=iter
     }
-    ret[[toString(fam)]] = BoostingModel(finalModel[[toString(fam)]][1:bestScoreRound],rate=rate)
+    ret[[toString(fam)]] = BoostingModel(finalModel[[toString(fam)]][1:bestScoreRound],rate=v)
   }
+  ret[["rate"]]=v
   ret[["log"]]=log
   ret[["bestScoreRound"]]=if(isval) bestScoreRound else iter
   ret[["rpartcontrols"]]=controls
