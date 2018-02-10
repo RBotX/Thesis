@@ -24,7 +24,7 @@ trainidx = c()
 l=1
 for(fam in unique(schools2[,"Family"])){
   
-  testidx = c(testidx, sample(which(schools2[,"Family"]==fam),floor(length(which(schools2[,"Family"]==fam))*0.9) ))
+  testidx = c(testidx, sample(which(schools2[,"Family"]==fam),floor(length(which(schools2[,"Family"]==fam))*0.90) )) ### 0.8 works after tuning
   famtrain = setdiff(which(schools2[,"Family"]==fam),testidx)
   famvalidx = sample(famtrain,0.15*length(famtrain) ) #val 10% of train
   validx = c(validx,famvalidx)
@@ -44,12 +44,12 @@ train = data$data[data$trainidx,]
 test = data$data[data$testidx,]
 val = data$data[data$validx,]
 cat("starting pando\n")
-mshared=TunePando(TrainMultiTaskClassificationGradBoost,train,val,fitTreeCoef="nocoef",fitLeafCoef="ridge",trainrate = 0.01)
+mshared=TunePando(TrainMultiTaskClassificationGradBoost,train,val,fitTreeCoef="nocoef",fitLeafCoef="ridge",trainrate = 0.01,cviter=200,cps=c(0.1,0.01,0.001,0.0001),cv=3,cvrate=0.1)
 cat("starting pando2\n")
-mshared2=TunePando(TrainMultiTaskClassificationGradBoost2,train,val,fitTreeCoef="ridge",fitLeafCoef="nocoef",trainrate = 0.01)
+mshared2=TunePando(TrainMultiTaskClassificationGradBoost2,train,val,fitTreeCoef="ridge",fitLeafCoef="nocoef",trainrate = 0.01,cviter=200,cps=c(0.1,0.01,0.001,0.0001),cv=3,cvrate=0.1)
 cat("starting per task models\n")
 
-perTaskMethods=TRUE
+perTaskMethods=FALSE
 if(perTaskMethods){
   perTaskModels=list()
   logitModels=list()
@@ -60,7 +60,7 @@ if(perTaskMethods){
     tr.val = val[val[,"Family"]==fam,]
     #    m0 = TrainMultiTaskClassificationGradBoost(tr,valdata=tr.val,groups = matrix(fam,nrow=nrow(tr),ncol=1),iter=iter,v=0.01,
     #                                               controls=rpart.control(), ridge.lambda = ridge.lambda,target="binary") 
-    m0=TunePando(vanillaboost2,tr,tr.val,trainrate = 0.01)
+    m0=TunePando(vanillaboost2,tr,tr.val,trainrate = 0.01,cviter=300,cv=0)
     # m0 = TrainMultiTaskClassificationGradBoost(tr,valdata=tr.val,groups = matrix(fam,nrow=nrow(tr),ncol=1),iter=iter,v=0.01,
     #                                            controls=rpart.control(), ridge.lambda = ridge.lambda,target="binary")  
     
@@ -76,12 +76,12 @@ binaryData["Family"]="1"
 binaryVal = val
 binaryVal["Family"]="1"
 #mbinary=TrainMultiTaskClassificationGradBoost(binaryData,iter=iter,v=rate,groups=matrix(1,nrow=nrow(binaryData),ncol=1),controls=rpart.control(),ridge.lambda=ridge.lambda,target="binary",valdata=binaryVal)
-mbinary=TunePando(vanillaboost2,binaryData,binaryVal,fitTreeCoef="nocoef",fitLeafCoef="nocoef",trainrate=0.01)
+mbinary=TunePando(vanillaboost2,binaryData,binaryVal,fitTreeCoef="nocoef",fitLeafCoef="nocoef",trainrate = 0.01,cviter=200,cps=c(0.1,0.01,0.001,0.0001),cv=3,cvrate=0.1)
 #mbinary2=TunePando(vanillaboost2,binaryData,binaryVal,fitTreeCoef="nocoef",fitLeafCoef="ridge",trainrate=0.1)
 
 linearMethods=TRUE
 if(linearMethods){
-  mlogitbinary = cv.glmnet(x=as.matrix(rbind(binaryData,binaryVal)[,-which(colnames(tr) %in% c("Family","Label"))]),y=rbind(binaryData,binaryVal)[,"Label"],family="binomial",alpha=1,maxit=100000,nfolds=5, nlambda=100,thresh=1E-6)
+  mlogitbinary = cv.glmnet(x=as.matrix(rbind(binaryData,binaryVal)[,-which(colnames(binaryData) %in% c("Family","Label"))]),y=rbind(binaryData,binaryVal)[,"Label"],family="binomial",alpha=1,maxit=100000,nfolds=5, nlambda=100,thresh=1E-6)
   gplassotraindata = CreateGroupLassoDesignMatrix(rbind(train,val))
   gplassoX = (gplassotraindata$X)[,-ncol(gplassotraindata$X)]
   gplassoy =  (gplassotraindata$X)[,ncol(gplassotraindata$X)]
@@ -112,7 +112,7 @@ allpreds = matrix(nrow=nrow(test),ncol=length(methods)+2)
 #colnames(allpreds)=c(methods,"Label","testnum")
 colnames(allpreds)=c(methods,"Label","Family")
 allpreds[,"Label"]=test[,"Label"]
-allpred[,"Family"]=test[,"Family"]
+allpreds[,"Family"]=test[,"Family"]
 #allpreds[,"testnum"]=l
 
 
@@ -139,7 +139,7 @@ for(fam in unique(test[,"Family"])){
     tt[[methods[which(methods=="PTLogit")]]] = predict(logitModels[[toString(fam)]],newx=as.matrix(tr.test[,-which(colnames(tr) %in% c("Family","Label"))]),type="response",s=logitModels[[toString(fam)]]$lambda.min)
   }
   if("BinaryLogit" %in% methods){
-    tt[[methods[which(methods=="BinaryLogit")]]] = predict(mlogitbinary,newx=as.matrix(tr.test[,-which(colnames(tr) %in% c("Family","Label"))]),type="response",s=mlogitbinary$lambda.min)
+    tt[[methods[which(methods=="BinaryLogit")]]] = predict(mlogitbinary,newx=as.matrix(tr.test[,-which(colnames(tr.test) %in% c("Family","Label"))]),type="response",s=mlogitbinary$lambda.min)
   }
   if("PANDO" %in% methods){
     tt[[methods[which(methods=="PANDO")]]] = predict(mshared[[toString(fam)]],tr.test[,-which(colnames(tr.test) %in% c("Family","Label"))],calibrate=TRUE)#,bestIt=bestIt)
@@ -244,8 +244,8 @@ for(i in 1:50){
   allavgs=rbind(allavgs,avgauc(allpreds[allidxs,]))
 }
 
-quantile(allavgs[,"PANDO2"]-allavgs[,"BB"],probs=c(0.025,0.975)) ### this gives us the 95% confidence interval
-quantile(allavgs[,"PANDO2"]-allavgs[,"BinaryLogit"],probs=c(0.025,0.975)) ### this gives us the 95% confidence interval
+quantile(allavgs[,"PANDO2"]-allavgs[,"BB"],probs=c(0.005,0.995)) ### this gives us the 95% confidence interval
+quantile(allavgs[,"PANDO2"]-allavgs[,"BinaryLogit"],probs=c(0.005,0.995)) ### this gives us the 95% confidence interval
   
 
 compmat2=matrix(NA,nrow=length(unique(test[,"Family"])),ncol=length(methods))
@@ -267,6 +267,13 @@ for(fam in unique(test[,"Family"])){
 #   AUC of roc1   AUC of roc2 
 # 0.9796171   0.9823319 
 allpreds=data.frame(allpreds)
+roc.test(roc(as.factor(allpreds[,"Label"]),as.numeric(allpreds[,"BB"])),
+         roc(as.factor(allpreds[,"Label"]),as.numeric(allpreds[,"PANDO"])))
+
+
+roc.test(roc(as.factor(allpreds[,"Label"]),as.numeric(allpreds[,"BinaryLogit"])),
+         roc(as.factor(allpreds[,"Label"]),as.numeric(allpreds[,"PANDO"])))
+
 roc.test(roc(as.factor(allpreds[,"Label"]),as.numeric(allpreds[,"BB"])),
          roc(as.factor(allpreds[,"Label"]),as.numeric(allpreds[,"PANDO2"])))
 

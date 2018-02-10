@@ -42,7 +42,7 @@ paraTuneFold = function(folds,foldname,pandofunc,trdata,iter,rate,controls,fitCo
     train = trdata[fold,] ## train on this
     valdata = trdata[-fold,] ## predict on this
     #controls = rpart.control(cp=as.numeric(cp),maxsurrogate=0)
-    cat("fitting fold with params maxdepth=",controls$maxdepth," cp=",controls$cp,"\n")
+    #cat("fitting fold with params maxdepth=",controls$maxdepth," cp=",controls$cp," iter="iter,"\n")
     mshared=pandofunc(train,iter=iter,v=rate,groups=train[,"Family"],controls=controls,target=target,valdata=valdata,earlystopping = -1,fitTreeCoef=fitTreeCoef,fitLeafCoef=fitLeafCoef)
     #cvpredictions[-fold,1:(iter-1)] = mshared$log$vpred ## all predictions for this fold
     return(mshared$log$vpred)
@@ -64,45 +64,55 @@ paraTuneFold = function(folds,foldname,pandofunc,trdata,iter,rate,controls,fitCo
 ## tuning rpart maxdepth,cp and num of iterations
 ## first tune tree params: maxdepth and cp on a fixed, probably samll number of iterations, then tune number of iterations
 ## for now we tune number of iterations on a validation set
-TunePando = function(pandofunc,trdata,valdata,target="binary",maxiter=1000,cv=3,fitTreeCoef="ridge",fitLeafCoef="nocoef",maxdepths=c(5),cps=c(0),cviter=10,cvrate=1,trainrate=0.01){
+#TunePando = function(pandofunc,trdata,valdata,target="binary",maxiter=1000,cv=3,fitTreeCoef="ridge",fitLeafCoef="nocoef",maxdepths=c(2,3,4,5,6,7),cps=c(0.0001),cviter=400,cvrate=0.01,trainrate=0.01){
+  TunePando = function(pandofunc,trdata,valdata,target="binary",maxiter=1000,cv=3,fitTreeCoef="ridge",fitLeafCoef="nocoef",maxdepths=c(30),cps=c(0.001),cviter=400,cvrate=0.1,trainrate=0.01, trainiter=2000){
+  
   
   trdata = trdata[sample(nrow(trdata)),] ## shuffle 
-  rate=cvrate # start with high leanring rate to tune the other parameters
-  folds = createFolds(factor(trdata[,"Label"]),k=cv,list=TRUE)
-  iter=cviter
-  grid = expand.grid(cp=cps,maxdepth=maxdepths) ## --> 30 = unlimited depth in rpart, maxsurrogate=0 to reduce comp time
-  grid = cbind(grid,rep(NA,nrow(grid)))
-  colnames(grid)[ncol(grid)]="bestCvScore"
-  grid = cbind(grid,rep(NA,nrow(grid)))
-  colnames(grid)[ncol(grid)]="bestCvIt"
-  # for(i in 1:nrow(grid)){
-  #   cvpredictions = matrix(NA,nrow(trdata),ncol=iter-1) ### CV predictions per iterations
-  #   maxdepth=grid[i,"maxdepth"]
-  #   cp=grid[i,"cp"]
-  #   controls = rpart.control(maxdepth = as.numeric(maxdepth),cp=as.numeric(cp))
-  #   retval=foreach(foldname=names(folds)) %dopar% paraTuneFold(folds,foldname,pandofunc=pandofunc,trdata,iter=iter,rate=rate,controls=controls,fitTreeCoef=fitTreeCoef,fitLeafCoef=fitLeafCoef,target=target)
-  #   j=1
-  #   for(fold in folds){
-  #     cvpredictions[-fold,1:(iter-1)] = retval[[j]]
-  #     j=j+1
-  #   }
-  # 
-  #   aucs=apply(cvpredictions,2,function(x){as.numeric(pROC::auc(pROC::roc(as.factor(trdata[,"Label"]),as.numeric(x))))})
-  #   bestCvIt = which(aucs==max(aucs))[1]
-  #   cat("best CV iter was:",bestCvIt,"\n")
-  #   cat("best AUC for params maxdepth=",maxdepth," cp=",cp,":",max(aucs),"\n")
-  #   grid[i,"bestCvScore"]=max(aucs)
-  #   grid[i,"bestCvIt"]=bestCvIt
-  # }
-  # bestGridIdx = which(grid[,"bestCvScore"]==max(grid[,"bestCvScore"]))[1]
-  # bestParams = grid[bestGridIdx,]
-  # 
-  # cat("found best parameters to be:", " cp=",bestParams[,"cp"]," maxdepth=",bestParams[,"maxdepth"],"\n")
-  # #controls = rpart.control(cp=as.numeric(bestParams[,"cp"]),maxdepth=as.numeric(bestParams[,"maxdepth"]))
-  controls=rpart.control(cp=0.00001)
+
+  if(cv>1){
+    folds = createFolds(factor(trdata[,"Label"]),k=cv,list=TRUE)
+    iter=cviter
+    grid = expand.grid(cp=cps,maxdepth=maxdepths) ## --> 30 = unlimited depth in rpart, maxsurrogate=0 to reduce comp time
+    grid = cbind(grid,rep(NA,nrow(grid)))
+    colnames(grid)[ncol(grid)]="bestCvScore"
+    grid = cbind(grid,rep(NA,nrow(grid)))
+    colnames(grid)[ncol(grid)]="bestCvIt"
+    cat("iter is",iter,"\n")
+    
+    for(i in 1:nrow(grid)){
+      cvpredictions = matrix(NA,nrow(trdata),ncol=iter-1) ### CV predictions per iterations
+      maxdepth=grid[i,"maxdepth"]
+      cp=grid[i,"cp"]
+      controls = rpart.control(maxdepth = as.numeric(maxdepth),cp=as.numeric(cp))
+      retval=foreach(foldname=names(folds)) %dopar% paraTuneFold(folds,foldname,pandofunc=pandofunc,trdata,iter=iter,rate=cvrate,controls=controls,fitTreeCoef=fitTreeCoef,fitLeafCoef=fitLeafCoef,target=target)
+      j=1
+      for(fold in folds){
+        cvpredictions[-fold,1:(iter-1)] = retval[[j]]
+        j=j+1
+      }
+      
+      aucs=apply(cvpredictions,2,function(x){as.numeric(pROC::auc(pROC::roc(as.factor(trdata[,"Label"]),as.numeric(x))))})
+      bestCvIt = which(aucs==max(aucs))[1]
+      cat("best CV iter was:",bestCvIt,"\n")
+      cat("best AUC for params maxdepth=",maxdepth," cp=",cp,":",max(aucs),"\n")
+      grid[i,"bestCvScore"]=max(aucs)
+      grid[i,"bestCvIt"]=bestCvIt
+    }
+    bestGridIdx = which(grid[,"bestCvScore"]==max(grid[,"bestCvScore"]))[1]
+    bestParams = grid[bestGridIdx,]
+    
+    cat("found best parameters to be:", " cp=",bestParams[,"cp"]," maxdepth=",bestParams[,"maxdepth"],"\n")
+    controls = rpart.control(cp=as.numeric(bestParams[,"cp"]),maxdepth=as.numeric(bestParams[,"maxdepth"]))
+    #controls = rpart.control(cp=as.numeric(bestParams[,"cp"]))
+  }else{
+    cat("not doiong cv, running with cp=0.01")
+    controls = rpart.control() # default values
+  }
+  #controls=rpart.control(cp=0.00001)
   # now we can use the validation set to determine the number of iterations
   rate=trainrate
-  iter=2000
+  iter=trainiter
   cat("training with rate=",rate,"\n")
   cat("fitting pando with best parmaeters to find n_estimators\n")
   mpando=pandofunc(trdata,iter=iter,v=rate,groups=trdata[,"Family"],controls=controls,target=target,valdata=valdata,earlystopping = 100,fitTreeCoef=fitTreeCoef,fitLeafCoef=fitLeafCoef)
