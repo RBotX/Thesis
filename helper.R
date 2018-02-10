@@ -71,6 +71,7 @@ paraTuneFold = function(folds,foldname,pandofunc,trdata,iter,rate,controls,fitCo
   trdata = trdata[sample(nrow(trdata)),] ## shuffle 
 
   if(cv>1){
+    set.seed(778)
     folds = createFolds(factor(trdata[,"Label"]),k=cv,list=TRUE)
     iter=cviter
     grid = expand.grid(cp=cps,maxdepth=maxdepths) ## --> 30 = unlimited depth in rpart, maxsurrogate=0 to reduce comp time
@@ -589,7 +590,7 @@ PlotImp = function(df,signalVars=c(), title="",  flip=FALSE, nfirstvar=30){
   p3 = ggplot(head(df,n=nfirstvar), aes(varname, weight = value,fill=Legend)) + geom_bar()
   p3 = p3+scale_fill_manual(values=group.colors)
   p3 = p3 + labs(title = title)
-  p3 = p3+ylab("split gain")
+  p3 = p3+ylab("normalized split gain")
   if(flip){
     p3=p3+coord_flip()
   }

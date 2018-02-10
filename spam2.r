@@ -43,13 +43,13 @@ ridge.lambda=1
 train = data$data[data$trainidx,]
 test = data$data[data$testidx,]
 val = data$data[data$validx,]
-cat("starting pando\n")
-mshared=TunePando(TrainMultiTaskClassificationGradBoost,train,val,fitTreeCoef="nocoef",fitLeafCoef="ridge",trainrate = 0.01,cviter=200,cps=c(0.1,0.01,0.001,0.0001),cv=3,cvrate=0.1)
+cat("starting pando\n") 
+mshared=TunePando(TrainMultiTaskClassificationGradBoost,train,val,fitTreeCoef="nocoef",fitLeafCoef="ridge",trainrate = 0.01,cviter=200,maxdepths=c(3,5,6,7),cps=c(0),cv=6,cvrate=0.01)
 cat("starting pando2\n")
-mshared2=TunePando(TrainMultiTaskClassificationGradBoost2,train,val,fitTreeCoef="ridge",fitLeafCoef="nocoef",trainrate = 0.01,cviter=200,cps=c(0.1,0.01,0.001,0.0001),cv=3,cvrate=0.1)
+mshared2=TunePando(TrainMultiTaskClassificationGradBoost2,train,val,fitTreeCoef="ridge",fitLeafCoef="nocoef",trainrate = 0.01,cviter=200,maxdepths=c(3,5,6,7),cps=c(0),cv=6,cvrate=0.01)
 cat("starting per task models\n")
 
-perTaskMethods=FALSE
+perTaskMethods=TRUE
 if(perTaskMethods){
   perTaskModels=list()
   logitModels=list()
@@ -60,14 +60,13 @@ if(perTaskMethods){
     tr.val = val[val[,"Family"]==fam,]
     #    m0 = TrainMultiTaskClassificationGradBoost(tr,valdata=tr.val,groups = matrix(fam,nrow=nrow(tr),ncol=1),iter=iter,v=0.01,
     #                                               controls=rpart.control(), ridge.lambda = ridge.lambda,target="binary") 
-    m0=TunePando(vanillaboost2,tr,tr.val,trainrate = 0.01,cviter=300,cv=0)
+    m0=TunePando(vanillaboost2,tr,tr.val,trainrate = 0.01,cviter=200,maxdepths=c(3,5,6,7),cps=c(0),cv=9,cvrate=0.01)
     # m0 = TrainMultiTaskClassificationGradBoost(tr,valdata=tr.val,groups = matrix(fam,nrow=nrow(tr),ncol=1),iter=iter,v=0.01,
     #                                            controls=rpart.control(), ridge.lambda = ridge.lambda,target="binary")  
     
     perTaskModels[[toString(fam)]]=m0
     logitModels[[toString(fam)]]= cv.glmnet(x=as.matrix(rbind(tr,tr.val)[,-which(colnames(tr) %in% c("Family","Label"))]),y=rbind(tr,tr.val)[,"Label"],family="binomial",alpha=1,maxit=10000,nfolds=5, thresh=1E-6,nlambda = 50)
   }
-  
 }
 
 ### train binary model, ignoring multi tasking:
@@ -76,7 +75,7 @@ binaryData["Family"]="1"
 binaryVal = val
 binaryVal["Family"]="1"
 #mbinary=TrainMultiTaskClassificationGradBoost(binaryData,iter=iter,v=rate,groups=matrix(1,nrow=nrow(binaryData),ncol=1),controls=rpart.control(),ridge.lambda=ridge.lambda,target="binary",valdata=binaryVal)
-mbinary=TunePando(vanillaboost2,binaryData,binaryVal,fitTreeCoef="nocoef",fitLeafCoef="nocoef",trainrate = 0.01,cviter=200,cps=c(0.1,0.01,0.001,0.0001),cv=3,cvrate=0.1)
+mbinary=TunePando(vanillaboost2,binaryData,binaryVal,fitTreeCoef="nocoef",fitLeafCoef="nocoef",trainrate = 0.01,cviter=200,maxdepths=c(3,5,6,7),cps=c(0),cv=6,cvrate=0.01)
 #mbinary2=TunePando(vanillaboost2,binaryData,binaryVal,fitTreeCoef="nocoef",fitLeafCoef="ridge",trainrate=0.1)
 
 linearMethods=TRUE
@@ -210,7 +209,17 @@ for(method in methods){
   avgauc=aucs/length(families)
   cat("avg auc for ",method,":",avgauc,"\n")
 }
-  
+
+fastAUC <- function(probs, class) {
+  x <- probs
+  y <- class
+  x1 = x[y==1]; n1 = length(x1); 
+  x2 = x[y==0]; n2 = length(x2);
+  r = rank(c(x1,x2))  
+  auc = (sum(r[1:n1]) - n1*(n1+1)/2) / n1 / n2
+  return(auc)
+}
+
 
 ### for bootstrapping: y_pred --> prediction, y_test--> label, groups --> the family of each instance. usually groups = test[,Family]
 avgauc = function(allpreds){
@@ -231,17 +240,17 @@ avgauc = function(allpreds){
   return(ret)
 }
 
-
-
-allavgs=c()
-allidxs=c()
-for(i in 1:50){
+NBS=100
+allavgs=matrix(NA,ncol=length(methods),nrow=NBS)
+colnames(allavgs)=methods
+for(i in 1:NBS){
+  allidxs=c()
   for(fam in families){
     idxs=which((allpreds[,"Family"]==fam))
     selectedidxs=sample(idxs,replace=TRUE,size=length(idxs))
     allidxs = c(allidxs,selectedidxs)
   }
-  allavgs=rbind(allavgs,avgauc(allpreds[allidxs,]))
+  allavgs[i,]=avgauc(allpreds[allidxs,])
 }
 
 quantile(allavgs[,"PANDO2"]-allavgs[,"BB"],probs=c(0.005,0.995)) ### this gives us the 95% confidence interval
@@ -281,6 +290,10 @@ roc.test(roc(as.factor(allpreds[,"Label"]),as.numeric(allpreds[,"BB"])),
 roc.test(roc(as.factor(allpreds[,"Label"]),as.numeric(allpreds[,"BinaryLogit"])),
          roc(as.factor(allpreds[,"Label"]),as.numeric(allpreds[,"PANDO2"])))
 
+roc.test(roc(as.factor(allpreds[,"Label"]),as.numeric(allpreds[,"BinaryLogit"])),
+         roc(as.factor(allpreds[,"Label"]),as.numeric(allpreds[,"GL"])))
+
+
 
 
 roc.test(roc(as.factor(alltests[alltests[,"testnum"]==l,"Label"]),alltests[alltests[,"testnum"]==l,"BB"]),
@@ -298,12 +311,12 @@ roc.test(roc(as.factor(alltests[alltests[,"testnum"]==l,"Label"]),alltests[allte
 roc.test(roc(as.factor(alltests[alltests[,"testnum"]==l,"Label"]),alltests[alltests[,"testnum"]==l,"GL"]),
          roc(as.factor(alltests[alltests[,"testnum"]==l,"Label"]),alltests[alltests[,"testnum"]==l,"PTLogit"]))
 
-dff = FeatureImportance.BoostingModel(mshared2_obo$fam1) 
-PlotImp(dff,flip = TRUE)
+dff1 = FeatureImportance.BoostingModel(mshared$fam1) 
+PlotImp(dff1,flip = TRUE)
 dev.copy2eps(file="plots/SpamFeatureImportancePANDO.eps")
 
-dff = PerTaskImportances(perTaskModels) 
-PlotImp(dff,flip = TRUE)
+dff2 = PerTaskImportances(perTaskModels) 
+PlotImp(dff2,flip = TRUE)
 dev.copy2eps(file="plots/SpamFeatureImportancePTB.eps")
 
 #save.image(compress=TRUE)
@@ -311,6 +324,16 @@ dev.copy2eps(file="plots/SpamFeatureImportancePTB.eps")
 for(m in methods){
   cat(m," ",mean(compmat2[,m]),"\n")
 }
+
+
+
+library(corrplot)
+vars=unique(c(dff1[1:12,][,"varname"],dff2[1:12,][,"varname"]))
+col<- colorRampPalette(c("black", "grey", "white"))(20)
+corrplot(cor(train[,which(colnames(train)%in%vars) ]), method="color",type="upper")
+
+
+help(corrplot)
 
 
 
